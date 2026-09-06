@@ -2,6 +2,7 @@ import express, { Application, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import authRoutes from './routes/auth.routes.js';
 import { globalErrorHandler } from './middlewares/errorHandler';
 
 const app: Application = express();
@@ -11,6 +12,10 @@ app.use(helmet()); // Security headers
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev')); // HTTP request logger
+
+
+app.use("/api/v1/auth", authRoutes)
+
 app.use(globalErrorHandler); // Global error handler
 
 // Health Check Route
