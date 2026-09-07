@@ -6,6 +6,8 @@ import { AppError } from '../utils/AppError.js';
 import { Property } from '../models/Property.js';
 
 export const createProperty = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+
+  
   const files = req.files as Express.Multer.File[];
   
   // 1. Process Images if they exist

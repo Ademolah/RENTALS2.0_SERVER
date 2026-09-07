@@ -25,7 +25,7 @@ export class AuthService {
   static generateToken(userId: string): string {
     // ✅ Move environment variables inside the execution method!
     const secret = process.env.JWT_SECRET;
-    const expiresIn = process.env.JWT_EXPIRES_IN || '1d';
+    const expiresIn = process.env.JWT_EXPIRES_IN || '';
 
     // Safety fallback check so you can pinpoint configuration setup issues instantly
     if (!secret) {

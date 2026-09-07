@@ -1,18 +1,22 @@
 import { v2 as cloudinary } from 'cloudinary';
-import { Readable } from 'stream'; // 💡 
-import 'multer'; // 
+import { Readable } from 'stream'; 
+import 'multer'; 
 
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || '',
-  api_key: process.env.CLOUDINARY_API_KEY || '',
-  api_secret: process.env.CLOUDINARY_API_SECRET || '',
-});
+// 🛑 REMOVED the global configuration block from here!
 
 export class CloudinaryService {
   /**
    * Uploads a single file buffer to Cloudinary via streams.
    */
   static uploadImageBuffer(fileBuffer: Buffer, folder: string = 'rentals/properties'): Promise<string> {
+    
+    
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME || '',
+      api_key: process.env.CLOUDINARY_API_KEY || '',
+      api_secret: process.env.CLOUDINARY_API_SECRET || '',
+    });
+
     return new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
         { folder, resource_type: 'image' },
@@ -22,7 +26,6 @@ export class CloudinaryService {
         }
       );
       
-      // Node.js stream API to push buffer to Cloudinary
       const stream = new Readable();
       stream.push(fileBuffer);
       stream.push(null);

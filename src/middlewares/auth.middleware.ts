@@ -9,7 +9,7 @@ interface JwtPayload {
   id: string;
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-rentals-fallback-key-2026';
+// 🛑 REMOVED the global JWT_SECRET from here because it loads too early!
 
 export const protect = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   let token;
@@ -23,10 +23,17 @@ export const protect = asyncHandler(async (req: Request, res: Response, next: Ne
     return next(new AppError('You are not logged in! Please log in to get access.', 401));
   }
 
-  // 2. Verify token payload
-  const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
+  // ✅ THE CRITICAL FIX: Fetch the secret dynamically inside the function block
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    console.error("🚨 CRITICAL ERROR: process.env.JWT_SECRET is undefined inside protect middleware!");
+    return next(new AppError('Internal Server Error: Missing validation keys.', 500));
+  }
 
-  // 3. Check if user still exists (in case account was deleted after token issuance)
+  // 2. Verify token payload using our freshly read secret
+  const decoded = jwt.verify(token, secret) as JwtPayload;
+
+  // 3. Check if user still exists
   const currentUser = await User.findById(decoded.id);
   if (!currentUser) {
     return next(new AppError('The user belonging to this token no longer exists.', 401));

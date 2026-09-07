@@ -11,6 +11,7 @@ import { upload } from '../middlewares/upload.middleware.js';
 // Add the upload middleware before the controller. Max 10 images.
 router.post(
   '/', 
+  protect,
   restrictTo('ADMIN', 'LANDLORD'), 
   upload.array('images', 10), 
   createProperty
