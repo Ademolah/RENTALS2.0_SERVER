@@ -8,6 +8,8 @@ export type ReservationStatus = 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
 
 // --- DOMAIN INTERFACES ---
 
+export type PayoutStatus = 'HELD_IN_ESCROW' | 'RELEASED_TO_LANDLORD' | 'DIRECT_TO_RENTALS' | 'REFUNDED';
+
 export interface IUser {
   email: string;
   passwordHash: string;
@@ -51,6 +53,10 @@ export interface IReservation {
   paymentStatus: PaymentStatus;
   reservationStatus: ReservationStatus;
   paystackReference?: string; // Crucial for payment verification later
+  checkInConfirmedByGuest: boolean;
+  checkInConfirmedByLandlord: boolean;
+  payoutStatus: PayoutStatus;
+  isRentalsProperty: boolean; // True if listed directly by Rentals Admin
   guestsCount: number;
   createdAt: Date;
   updatedAt: Date;

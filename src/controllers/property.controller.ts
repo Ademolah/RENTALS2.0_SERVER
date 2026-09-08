@@ -2,8 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { PropertyService } from '../services/property.service.js';
 import { CloudinaryService } from '../services/cloudinary.service.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { AppError } from '../utils/AppError.js';
-import { Property } from '../models/Property.js';
+
 
 export const createProperty = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
 

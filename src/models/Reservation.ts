@@ -18,6 +18,14 @@ const reservationSchema = new Schema<IReservationDocument>(
       enum: ['ACTIVE', 'COMPLETED', 'CANCELLED'], 
       default: 'ACTIVE' 
     },
+    checkInConfirmedByGuest: { type: Boolean, default: false },
+    checkInConfirmedByLandlord: { type: Boolean, default: false },
+    payoutStatus: { 
+      type: String, 
+      enum: ['HELD_IN_ESCROW', 'RELEASED_TO_LANDLORD', 'DIRECT_TO_RENTALS', 'REFUNDED'],
+      default: 'HELD_IN_ESCROW'
+    },
+isRentalsProperty: { type: Boolean, default: false },
     paystackReference: { type: String, unique: true, sparse: true }, // Sparse allows multiple nulls if unpaid
     guestsCount: { type: Number, required: true, min: 1 },
   },
