@@ -8,12 +8,20 @@ export class PropertyService {
 
   static async getProperties(queryString: any) {
     const queryObj = { ...queryString };
+    
+    // ✅ THE CRITICAL FIX: Automatically convert the category parameter to uppercase 
+    // to match your Mongoose enum settings ('SHORTLET', 'APARTMENT', etc.)
+    if (queryObj.category && typeof queryObj.category === 'string') {
+      queryObj.category = queryObj.category.toUpperCase();
+    }
+
     const excludedFields = ['page', 'sort', 'limit', 'fields'];
     excludedFields.forEach((el) => delete queryObj[el]);
 
     let queryStr = JSON.stringify(queryObj);
     queryStr = queryStr.replace(/\b(gte|gt|lte|lt)\b/g, (match) => `$${match}`);
     
+    // Pass the correctly parsed query payload into Mongoose
     let query = Property.find(JSON.parse(queryStr));
 
     if (queryString.sort) {

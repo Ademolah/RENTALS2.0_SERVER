@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { 
-  createProperty, 
+  createProperty, getProperties, getProperty,  
+  updateProperty
 } from '../controllers/property.controller.js';
 import { protect, restrictTo } from '../middlewares/auth.middleware.js';
 
@@ -16,6 +17,10 @@ router.post(
   upload.array('images', 10), 
   createProperty
 );
+
+router.get('/', getProperties);
+router.get('/:id', getProperty);
+router.patch('/:id', protect, restrictTo('ADMIN', 'LANDLORD'), updateProperty);
 
 // NOTE: Soft-delete or hard-delete endpoints would go here, similarly restricted.
 
