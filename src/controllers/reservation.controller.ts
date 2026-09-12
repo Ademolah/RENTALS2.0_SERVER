@@ -6,71 +6,92 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 import { Property } from '../models/Property.js';
 
+
 export const initiateBooking = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const { propertyId, checkInDate, checkOutDate, guestsCount } = req.body;
-  const user = req.user!;
+  const { propertyId, checkInDate, checkOutDate, guestsCount, totalAmount } = req.body;
+  const user = req.user as any; // Bypass TS 'never' type restriction on req.user
 
-  // 1. Create Pending Reservation in DB
-  const { reservation, totalAmount, paystackReference } = await ReservationService.createPendingReservation(
-    user._id.toString(),
-    propertyId,
-    checkInDate,
-    checkOutDate,
-    guestsCount
-  );
+  // 1. Bundle data into Paystack Metadata
+  const metadata = {
+    custom_fields: [
+      { display_name: "Property ID", variable_name: "propertyId", value: propertyId },
+      { display_name: "User ID", variable_name: "userId", value: user._id.toString() },
+      { display_name: "Check In", variable_name: "checkInDate", value: checkInDate },
+      { display_name: "Check Out", variable_name: "checkOutDate", value: checkOutDate },
+      { display_name: "Guests", variable_name: "guestsCount", value: guestsCount.toString() }
+    ]
+  };
 
-  // 2. Initialize Paystack Checkout
+  // 2. Initialize Paystack Checkout (Pass 3 arguments matching your service)
   const paystackData = await PaystackService.initializeTransaction(
     user.email,
     totalAmount,
-    paystackReference
+    metadata
   );
 
-  res.status(201).json({
+  res.status(200).json({
     status: 'success',
-    message: 'Reservation pending payment',
+    message: 'Payment initialization successful',
     data: {
-      reservationId: reservation._id,
       checkoutUrl: paystackData.authorization_url,
     }
   });
 });
 
+
 /**
- * Webhook Endpoint: Paystack calls this automatically when a user pays successfully.
+ * Webhook Endpoint
  */
 export const paystackWebhook = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  // 1. Acknowledge Receipt IMMEDIATELY
+  res.status(200).send('Webhook received');
+
   const signature = req.headers['x-paystack-signature'] as string;
-
-  // 1. Verify Webhook Signature (Security)
-  // We stringify req.body directly because express.json() has already parsed it.
-  // Note: For absolute safety, webhooks usually use raw body, but this works if strictly formatted.
-
   const isValid = PaystackService.verifyWebhookSignature(JSON.stringify(req.body), signature);
   
-  if (!isValid) {
-    return next(new AppError('Invalid webhook signature', 400));
-  }
+  if (!isValid) return;
 
   const event = req.body;
 
   // 2. Handle Successful Payment Event
   if (event.event === 'charge.success') {
     const reference = event.data.reference;
-
-    // Verify transaction source of truth directly with Paystack
     const txData = await PaystackService.verifyTransaction(reference);
 
     if (txData.status === 'success') {
-      await Reservation.findOneAndUpdate(
-        { paystackReference: reference },
-        { paymentStatus: 'SUCCESS' }
-      );
+      
+      // Extract bundled metadata
+      const customFields = event.data.metadata.custom_fields || [];
+      const metadata = customFields.reduce((acc: any, field: any) => {
+        acc[field.variable_name] = field.value;
+        return acc;
+      }, {});
+
+      try {
+        // Create the Reservation Document (Using your schema's exact field names)
+        await Reservation.create({
+          userId: metadata.userId,         // Ensure this matches your Reservation schema
+          propertyId: metadata.propertyId, // Ensure this matches your Reservation schema
+          checkInDate: new Date(metadata.checkInDate),
+          checkOutDate: new Date(metadata.checkOutDate),
+          guestsCount: Number(metadata.guestsCount),
+          totalAmount: txData.amount / 100, // Convert Kobo back to Naira
+          paystackReference: reference,
+          paymentStatus: 'SUCCESS'
+        });
+
+        // Update the Property availability
+        await Property.findByIdAndUpdate(metadata.propertyId, {
+          isAvailable: false,
+          nextAvailableDate: new Date(metadata.checkOutDate)
+        });
+
+        console.log('Reservation created successfully via Webhook');
+      } catch (dbError) {
+        console.error('Webhook Database Write Error:', dbError);
+      }
     }
   }
-
-  // 3. Acknowledge Receipt to Paystack (Must return 200 quickly so Paystack stops retrying)
-  res.status(200).send('Webhook received');
 });
 
 

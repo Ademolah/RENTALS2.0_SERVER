@@ -7,13 +7,15 @@ export class PaystackService {
    * Initializes a transaction to get the checkout URL.
    * Note: Paystack expects the amount in Kobo (Naira * 100).
    */
-  static async initializeTransaction(email: string, amountInNaira: number, reference: string) {
+  /**
+   * Initializes a transaction to get the checkout URL.
+   */
+  static async initializeTransaction(email: string, amountInNaira: number, metadata: any) {
     const amountInKobo = amountInNaira * 100;
     
-    // ✅ THE CRITICAL FIX: Fetch the secret dynamically inside the function execution scope
     const secretKey = process.env.PAYSTACK_SECRET_KEY;
     if (!secretKey) {
-      console.error("🚨 CRITICAL CONFIG ERROR: process.env.PAYSTACK_SECRET_KEY is missing inside initializeTransaction!");
+      console.error("🚨 CRITICAL CONFIG ERROR: process.env.PAYSTACK_SECRET_KEY is missing!");
       throw new Error("Payment gateway configuration is missing.");
     }
 
@@ -26,8 +28,8 @@ export class PaystackService {
       body: JSON.stringify({
         email,
         amount: amountInKobo,
-        reference,
-        callback_url: `${process.env.FRONTEND_URL}/payment/callback`, // Where React redirects after payment
+        callback_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}`, // Routes back to home
+        metadata // Injecting the booking details for the webhook!
       }),
     });
 
@@ -35,7 +37,7 @@ export class PaystackService {
     if (!data.status) {
       throw new Error(`Paystack Initialization Failed: ${data.message}`);
     }
-    return data.data; // Contains authorization_url and access_code
+    return data.data; // Contains authorization_url
   }
 
   /**

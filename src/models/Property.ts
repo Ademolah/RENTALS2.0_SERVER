@@ -26,6 +26,11 @@ const propertySchema = new Schema<IPropertyDocument>(
     amenities: [{ type: String }],
     images: [{ type: String }], // Will store S3/Cloudinary URLs later
     isAvailable: { type: Boolean, default: true },
+   
+    nextAvailableDate: {
+      type: Date,
+      default: null // <-- Add this!
+    },
     maxGuests: { type: Number, required: true, min: 1 },
   },
   { timestamps: true }

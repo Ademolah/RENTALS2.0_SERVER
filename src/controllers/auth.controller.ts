@@ -52,12 +52,13 @@ export const loginUser = asyncHandler(async (req: Request, res: Response, next: 
     return next(new AppError('Incorrect email or password', 401));
   }
 
-  const token = AuthService.generateToken(user.id);
-  user.passwordHash = undefined as any;
+  const token = AuthService.generateToken(user._id.toString()); 
 
-  res.status(200).json({
-    status: 'success',
-    token,
-    data: { user }
-  });
+user.passwordHash = undefined as any;
+
+res.status(200).json({
+  status: 'success',
+  token,
+  data: { user }
+});
 });

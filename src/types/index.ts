@@ -39,6 +39,7 @@ export interface IProperty {
   amenities: string[];
   images: string[]; // Array of image URLs
   isAvailable: boolean;
+  nextAvailableDate?: Date;
   maxGuests: number;
   createdAt: Date;
   updatedAt: Date;
