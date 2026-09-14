@@ -2,7 +2,7 @@ import { Document, Types } from 'mongoose';
 
 // --- ENUMS & LITERALS ---
 export type UserRole = 'USER' | 'LANDLORD' | 'ADMIN'; // 'ADMIN' is for your internal "Rentals" team
-export type PropertyCategory = 'APARTMENT' | 'SHORTLET' | 'VACATION' | 'HOTEL';
+export type PropertyCategory = 'CAR RENTAL' | 'SHORTLET' | 'VIP RESERVATION' | 'HOTEL';
 export type PaymentStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'REFUNDED';
 export type ReservationStatus = 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
 

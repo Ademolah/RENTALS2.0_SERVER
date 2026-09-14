@@ -7,7 +7,7 @@ const propertySchema = new Schema<IPropertyDocument>(
     description: { type: String, required: true },
     category: { 
       type: String, 
-      enum: ['APARTMENT', 'SHORTLET', 'VACATION', 'HOTEL'], 
+      enum: ['CAR RENTAL', 'SHORTLET', 'VIP RESERVATION', 'HOTEL'], 
       required: true 
     },
     ownerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
