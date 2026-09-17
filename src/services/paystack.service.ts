@@ -7,10 +7,12 @@ export class PaystackService {
    * Initializes a transaction to get the checkout URL.
    * Note: Paystack expects the amount in Kobo (Naira * 100).
    */
-  /**
-   * Initializes a transaction to get the checkout URL.
-   */
-  static async initializeTransaction(email: string, amountInNaira: number, metadata: any) {
+  static async initializeTransaction(
+    email: string, 
+    amountInNaira: number, 
+    metadata: any,
+    reference?: string // 💡 Added the 4th parameter for the custom reference string
+  ) {
     const amountInKobo = amountInNaira * 100;
     
     const secretKey = process.env.PAYSTACK_SECRET_KEY;
@@ -28,8 +30,9 @@ export class PaystackService {
       body: JSON.stringify({
         email,
         amount: amountInKobo,
-        callback_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}`, // Routes back to home
-        metadata // Injecting the booking details for the webhook!
+        reference, // 💡 Maps your custom local tracking reference to the root of Paystack's endpoint
+        callback_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}`, 
+        metadata 
       }),
     });
 
@@ -37,7 +40,7 @@ export class PaystackService {
     if (!data.status) {
       throw new Error(`Paystack Initialization Failed: ${data.message}`);
     }
-    return data.data; // Contains authorization_url
+    return data.data; 
   }
 
   /**
@@ -54,7 +57,7 @@ export class PaystackService {
     });
 
     const data = await response.json();
-    return data.data; // Contains status ('success', 'failed', etc.)
+    return data.data; 
   }
 
   /**

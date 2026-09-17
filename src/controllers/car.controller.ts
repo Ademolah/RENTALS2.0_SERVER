@@ -141,27 +141,32 @@ export const initiateCarBooking = asyncHandler(async (req: Request, res: Respons
     dropoffTime
   );
 
-  // ✅ THE CRITICAL FIX: Structure the payload parameters cleanly as a valid object container 
-  // and pass the reference to Paystack properly (Paystack accepts reference at the root object profile!)
+  // Perfectly aligned with the Webhook's expected metadata structure
   const metadataPayload = {
-    bookingType: 'CAR_RENTAL',
-    reservationId: reservation._id.toString(),
     custom_fields: [
       {
         display_name: "Booking Type",
-        variable_name: "booking_type",
-        value: "car_rental"
+        variable_name: "bookingType",
+        value: "CAR"
+      },
+      {
+        display_name: "Reservation ID",
+        variable_name: "reservationId",
+        value: reservation._id.toString()
+      },
+      {
+        display_name: "Car ID",
+        variable_name: "carId",
+        value: carId.toString()
       }
     ]
   };
 
-  // Update the service method invocation to support its design parameters
-  // Paystack allows reference at the root level, so we must add it to the signature or body if needed.
-  // For your immediate layout setup, let's wrap it right into your service.
   const paystackData = await PaystackService.initializeTransaction(
     user.email,
     totalAmount,
-    metadataPayload
+    metadataPayload,
+    paystackReference // Ensure your PaystackService accepts this parameter if you generate it locally
   );
 
   res.status(201).json({

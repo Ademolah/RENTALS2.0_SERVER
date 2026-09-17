@@ -5,6 +5,8 @@ import { Reservation } from '../models/Reservation.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 import { Property } from '../models/Property.js';
+import { CarReservation } from '../models/CarReservation.js';
+import { Car } from '../models/Car.js';
 
 
 export const initiateBooking = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
@@ -43,7 +45,7 @@ export const initiateBooking = asyncHandler(async (req: Request, res: Response, 
  * Webhook Endpoint
  */
 export const paystackWebhook = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // 1. Acknowledge Receipt IMMEDIATELY
+  // 1. Acknowledge Receipt IMMEDIATELY (Paystack requires a 200 OK within seconds)
   res.status(200).send('Webhook received');
 
   const signature = req.headers['x-paystack-signature'] as string;
@@ -53,7 +55,6 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
 
   const event = req.body;
 
-  // 2. Handle Successful Payment Event
   if (event.event === 'charge.success') {
     const reference = event.data.reference;
     const txData = await PaystackService.verifyTransaction(reference);
@@ -67,28 +68,45 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
         return acc;
       }, {});
 
+      const bookingType = metadata.bookingType || 'PROPERTY'; // Default for backward compatibility
+
       try {
-        // Create the Reservation Document (Using your schema's exact field names)
-        await Reservation.create({
-          userId: metadata.userId,         // Ensure this matches your Reservation schema
-          propertyId: metadata.propertyId, // Ensure this matches your Reservation schema
-          checkInDate: new Date(metadata.checkInDate),
-          checkOutDate: new Date(metadata.checkOutDate),
-          guestsCount: Number(metadata.guestsCount),
-          totalAmount: txData.amount / 100, // Convert Kobo back to Naira
-          paystackReference: reference,
-          paymentStatus: 'SUCCESS'
-        });
+        if (bookingType === 'PROPERTY') {
+          // --- PROPERTY RESERVATION LOGIC ---
+          await Reservation.create({
+            userId: metadata.userId,
+            propertyId: metadata.propertyId,
+            checkInDate: new Date(metadata.checkInDate),
+            checkOutDate: new Date(metadata.checkOutDate),
+            guestsCount: Number(metadata.guestsCount),
+            totalAmount: txData.amount / 100, 
+            paystackReference: reference,
+            paymentStatus: 'SUCCESS'
+          });
 
-        // Update the Property availability
-        await Property.findByIdAndUpdate(metadata.propertyId, {
-          isAvailable: false,
-          nextAvailableDate: new Date(metadata.checkOutDate)
-        });
+          await Property.findByIdAndUpdate(metadata.propertyId, {
+            isAvailable: false,
+            nextAvailableDate: new Date(metadata.checkOutDate)
+          });
+          console.log('✅ Property Reservation created via Webhook');
 
-        console.log('Reservation created successfully via Webhook');
+        } else if (bookingType === 'CAR') {
+          // --- CAR RESERVATION LOGIC ---
+          // Since your car booking endpoint already creates a "PENDING" DB record, 
+          // we just update it to SUCCESS instead of creating a new one.
+          await CarReservation.findByIdAndUpdate(metadata.reservationId, {
+            paymentStatus: 'SUCCESS',
+            paystackReference: reference
+          });
+
+          await Car.findByIdAndUpdate(metadata.carId, {
+            isAvailable: false, // Mark vehicle as booked
+          });
+          console.log('✅ Car Reservation paid & secured via Webhook');
+        }
+
       } catch (dbError) {
-        console.error('Webhook Database Write Error:', dbError);
+        console.error('❌ Webhook Database Write Error:', dbError);
       }
     }
   }
