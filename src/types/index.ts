@@ -40,6 +40,9 @@ export interface ICarReservation {
   userId: Types.ObjectId;
   pickupTime: Date;
   dropoffTime: Date;
+  guestConfirmedPickup: boolean;
+  ownerConfirmedHandover: boolean; 
+  escrowStatus: 'HELD' | 'RELEASED' | 'REFUNDED'; 
   totalAmount: number;
   paymentStatus: 'PENDING' | 'SUCCESS' | 'FAILED' | 'REFUNDED';
   reservationStatus: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';

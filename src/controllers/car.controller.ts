@@ -5,6 +5,8 @@ import { PaystackService } from '../services/paystack.service.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 import { CloudinaryService } from '../services/cloudinary.service.js';
+import { CarReservation } from '../models/CarReservation.js';
+
 
 // Add this to src/controllers/car.controller.ts
 
@@ -85,6 +87,49 @@ export const listCars = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json({ status: 'success', results: cars.length, data: { cars } });
 });
 
+
+
+export const listAllCars = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  // Extract query parameters for homepage filtering
+  const { category, city, minPrice, maxPrice, limit = 10, page = 1 } = req.query;
+
+  // Build a dynamic MongoDB query object
+  const query: any = { isAvailable: true };
+
+  if (category) query.category = category;
+  if (city) query['location.city'] = { $regex: new RegExp(city as string, 'i') };
+  
+  if (minPrice || maxPrice) {
+    query.pricePer12Hours = {};
+    if (minPrice) query.pricePer12Hours.$gte = Number(minPrice);
+    if (maxPrice) query.pricePer12Hours.$lte = Number(maxPrice);
+  }
+
+  // Calculate pagination skip
+  const skip = (Number(page) - 1) * Number(limit);
+
+  // Execute search with pagination
+  const cars = await Car.find(query)
+    .sort({ createdAt: -1 }) // Newest premium cars first
+    .skip(skip)
+    .limit(Number(limit));
+
+  const total = await Car.countDocuments(query);
+
+  res.status(200).json({
+    status: 'success',
+    results: cars.length,
+    data: { 
+      cars,
+      pagination: {
+        total,
+        page: Number(page),
+        pages: Math.ceil(total / Number(limit))
+      }
+    }
+  });
+});
+
 export const initiateCarBooking = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { carId, pickupTime, dropoffTime } = req.body;
   const user = req.user!;
@@ -143,5 +188,64 @@ export const getCarById = asyncHandler(async (req: Request, res: Response, next:
   res.status(200).json({
     status: 'success',
     data: { car }
+  });
+});
+
+
+export const confirmCarHandover = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { reservationId } = req.params;
+  const userId = req.user!._id.toString();
+  const userRole = req.user!.role;
+
+  const reservation = await CarReservation.findById(reservationId).populate('carId');
+  if (!reservation) {
+    return next(new AppError('Reservation not found', 404));
+  }
+
+  if (reservation.paymentStatus !== 'SUCCESS') {
+    return next(new AppError('Cannot handover an unpaid reservation', 400));
+  }
+
+  // Determine who is making the request and update their respective flag
+  const isGuest = reservation.userId.toString() === userId;
+  const isOwner = (reservation.carId as any).ownerId.toString() === userId || userRole === 'ADMIN';
+
+  if (!isGuest && !isOwner) {
+    return next(new AppError('You are not authorized to modify this reservation', 403));
+  }
+
+  if (isGuest) {
+    reservation.guestConfirmedPickup = true;
+  }
+  
+  if (isOwner) {
+    reservation.ownerConfirmedHandover = true;
+  }
+
+  // The Escrow Release Trigger Logic
+  if (reservation.guestConfirmedPickup && reservation.ownerConfirmedHandover && reservation.escrowStatus === 'HELD') {
+    
+    // Calculate 95% payout (5% platform commission)
+    const payoutAmount = Math.round(reservation.totalAmount * 0.95);
+    
+    // Trigger Paystack Transfer to Landlord/Owner (Requires owner's recipient code)
+    // await PaystackService.transferFunds(payoutAmount, (reservation.carId as any).ownerId);
+    
+    reservation.escrowStatus = 'RELEASED';
+    reservation.reservationStatus = 'ACTIVE'; // Car is now officially on the road
+  }
+
+  await reservation.save();
+
+  res.status(200).json({
+    status: 'success',
+    message: reservation.escrowStatus === 'RELEASED' 
+      ? 'Handover complete. Funds have been released to the vehicle owner.'
+      : 'Handover partially confirmed. Waiting for the other party to confirm.',
+    data: {
+      guestConfirmed: reservation.guestConfirmedPickup,
+      ownerConfirmed: reservation.ownerConfirmedHandover,
+      escrowStatus: reservation.escrowStatus
+    }
   });
 });

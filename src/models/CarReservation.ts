@@ -18,6 +18,13 @@ const carReservationSchema = new Schema<ICarReservationDocument>(
       enum: ['ACTIVE', 'COMPLETED', 'CANCELLED'], 
       default: 'ACTIVE' 
     },
+    guestConfirmedPickup: { type: Boolean, default: false },
+    ownerConfirmedHandover: { type: Boolean, default: false },
+    escrowStatus: { 
+      type: String, 
+      enum: ['HELD', 'RELEASED', 'REFUNDED'], 
+      default: 'HELD' 
+    },
     paystackReference: { type: String, unique: true, sparse: true },
     payoutStatus: { 
       type: String, 
