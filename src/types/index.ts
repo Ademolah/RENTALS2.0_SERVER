@@ -10,6 +10,47 @@ export type ReservationStatus = 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
 
 export type PayoutStatus = 'HELD_IN_ESCROW' | 'RELEASED_TO_LANDLORD' | 'DIRECT_TO_RENTALS' | 'REFUNDED';
 
+
+export type CarCategory = 'LUXURY' | 'SUV' | 'SEDAN' | 'CHAUFFEUR_DRIVEN' | 'VAN';
+export type Transmission = 'AUTOMATIC' | 'MANUAL';
+
+export interface ICar {
+  make: string;
+  carModel: string;
+  year: number;
+  category: CarCategory;
+  transmission: Transmission;
+  ownerId: Types.ObjectId; // References User (Landlord/Admin)
+  pricePer12Hours: number;
+  currency: string;
+  location: {
+    city: string;
+    state: string;
+    address?: string;
+  };
+  features: string[]; // e.g., ['Leather Seats', 'Bluetooth', 'Armored']
+  images: string[];
+  isAvailable: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ICarReservation {
+  carId: Types.ObjectId;
+  userId: Types.ObjectId;
+  pickupTime: Date;
+  dropoffTime: Date;
+  totalAmount: number;
+  paymentStatus: 'PENDING' | 'SUCCESS' | 'FAILED' | 'REFUNDED';
+  reservationStatus: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+  paystackReference?: string;
+  payoutStatus: 'HELD_IN_ESCROW' | 'RELEASED_TO_OWNER' | 'DIRECT_TO_RENTALS' | 'REFUNDED';
+  isRentalsCar: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+
 export interface IUser {
   email: string;
   passwordHash: string;
@@ -67,3 +108,5 @@ export interface IReservation {
 export interface IUserDocument extends IUser, Document {}
 export interface IPropertyDocument extends IProperty, Document {}
 export interface IReservationDocument extends IReservation, Document {}
+export interface ICarDocument extends ICar, Document {}
+export interface ICarReservationDocument extends ICarReservation, Document {}
