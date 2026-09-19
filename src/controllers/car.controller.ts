@@ -19,7 +19,9 @@ export const createCar = asyncHandler(async (req: Request, res: Response, next: 
     transmission,
     pricePer12Hours,
     currency,
+    seatNumber,
     location,
+    description,
     features,
   } = req.body;
 
@@ -63,6 +65,8 @@ export const createCar = asyncHandler(async (req: Request, res: Response, next: 
     pricePer12Hours: Number(pricePer12Hours),
     currency: currency || 'NGN',
     location: parsedLocation,
+    description,
+    seatNumber,
     features: parsedFeatures || [],
     images: imageUrls, 
     isAvailable: true

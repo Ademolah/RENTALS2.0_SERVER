@@ -68,42 +68,82 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
         return acc;
       }, {});
 
-      const bookingType = metadata.bookingType || 'PROPERTY'; // Default for backward compatibility
+      const bookingType = metadata.bookingType || 'PROPERTY'; 
 
       try {
-        if (bookingType === 'PROPERTY') {
-          // --- PROPERTY RESERVATION LOGIC ---
-          await Reservation.create({
-            userId: metadata.userId,
-            propertyId: metadata.propertyId,
-            checkInDate: new Date(metadata.checkInDate),
-            checkOutDate: new Date(metadata.checkOutDate),
-            guestsCount: Number(metadata.guestsCount),
-            totalAmount: txData.amount / 100, 
-            paystackReference: reference,
-            paymentStatus: 'SUCCESS'
-          });
+        switch (bookingType) {
+          
+          case 'PROPERTY': {
+            // --- 🏠 PROPERTY RESERVATION LOGIC (Preserved perfectly) ---
+            await Reservation.create({
+              userId: metadata.userId,
+              propertyId: metadata.propertyId,
+              checkInDate: new Date(metadata.checkInDate),
+              checkOutDate: new Date(metadata.checkOutDate),
+              guestsCount: Number(metadata.guestsCount),
+              totalAmount: txData.amount / 100, 
+              paystackReference: reference,
+              paymentStatus: 'SUCCESS'
+            });
 
-          await Property.findByIdAndUpdate(metadata.propertyId, {
-            isAvailable: false,
-            nextAvailableDate: new Date(metadata.checkOutDate)
-          });
-          console.log('✅ Property Reservation created via Webhook');
+            await Property.findByIdAndUpdate(metadata.propertyId, {
+              isAvailable: false,
+              nextAvailableDate: new Date(metadata.checkOutDate)
+            });
+            console.log(`✅ [Webhook] Property Reservation created (Ref: ${reference})`);
+            break;
+          }
 
-        } else if (bookingType === 'CAR') {
-          // --- CAR RESERVATION LOGIC ---
-          // Since your car booking endpoint already creates a "PENDING" DB record, 
-          // we just update it to SUCCESS instead of creating a new one.
-          await CarReservation.findByIdAndUpdate(metadata.reservationId, {
-            paymentStatus: 'SUCCESS',
-            paystackReference: reference
-          });
+          case 'CAR': {
+            // --- 🚗 CAR RESERVATION LOGIC (Upgraded) ---
+            // 1. Fetch the pending reservation to access exact dates
+            const reservation = await CarReservation.findById(metadata.reservationId);
+            
+            if (reservation) {
+              // 2. Update Reservation Status & Lock Escrow
+              reservation.paymentStatus = 'SUCCESS';
+              reservation.escrowStatus = 'HELD'; 
+              reservation.paystackReference = reference;
+              // Ensure it remains ACTIVE
+              reservation.reservationStatus = 'ACTIVE'; 
+              await reservation.save();
 
-          await Car.findByIdAndUpdate(metadata.carId, {
-            isAvailable: false, // Mark vehicle as booked
-          });
-          console.log('✅ Car Reservation paid & secured via Webhook');
+              // 3. Update Car Availability
+              await Car.findByIdAndUpdate(metadata.carId, {
+                isAvailable: false, 
+                // Set the next available date so the UI knows when it frees up
+                nextAvailableDate: reservation.dropoffTime 
+              });
+              
+              console.log(`✅ [Webhook] Car Reservation secured (Ref: ${reference})`);
+            }
+            break;
+          }
+
+          case 'HOTEL': {
+            // --- 🏨 HOTEL RESERVATION LOGIC (Future-proofed) ---
+            console.log(`⏳ [Webhook] Hotel logic placeholder triggered (Ref: ${reference})`);
+            // TODO: await HotelReservation.create(...)
+            // TODO: await HotelRoom.findByIdAndUpdate(...)
+            break;
+          }
+
+          case 'VIP': {
+            // --- 👑 VIP RESERVATION LOGIC (Future-proofed) ---
+            console.log(`⏳ [Webhook] VIP logic placeholder triggered (Ref: ${reference})`);
+            // TODO: await VipReservation.create(...)
+            // TODO: await VipVenue.findByIdAndUpdate(...)
+            break;
+          }
+
+          default:
+            console.warn(`⚠️ [Webhook] Unknown bookingType received: ${bookingType}`);
         }
+
+        // --- 📨 GLOBAL POST-PAYMENT ACTIONS ---
+        // These will fire for ALL successful booking types.
+        // TODO: NotificationService.sendBookingEmail(userEmail, receiptData);
+        // TODO: NotificationService.sendHostAlert(hostId, "New booking secured");
 
       } catch (dbError) {
         console.error('❌ Webhook Database Write Error:', dbError);

@@ -20,6 +20,11 @@ const carSchema = new Schema<ICarDocument>(
       state: { type: String, required: true },
       address: { type: String }
     },
+    seatNumber: {type: String, required: true},
+    description: {
+      type: String,
+      required: [true, 'Please provide a description of the vehicle']
+    },
     features: [{ type: String }],
     images: [{ type: String }],
     isAvailable: { type: Boolean, default: true },

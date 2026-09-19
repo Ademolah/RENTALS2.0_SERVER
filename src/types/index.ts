@@ -28,6 +28,8 @@ export interface ICar {
     state: string;
     address?: string;
   };
+  description: string;
+  seatNumber: string;
   features: string[]; // e.g., ['Leather Seats', 'Bluetooth', 'Armored']
   images: string[];
   isAvailable: boolean;
