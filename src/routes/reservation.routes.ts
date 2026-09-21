@@ -14,6 +14,7 @@ router.post('/webhook', paystackWebhook);
 
 router.use(protect);
 
+
 router.post('/book', initiateBooking);
 router.get('/my-bookings', getMyBookings);
 router.get('/landlord-bookings', restrictTo('LANDLORD', 'ADMIN'), getLandlordBookings);

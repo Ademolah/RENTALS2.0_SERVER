@@ -81,42 +81,54 @@ export const createCar = asyncHandler(async (req: Request, res: Response, next: 
 
 export const listCars = asyncHandler(async (req: Request, res: Response) => {
   const { city, category } = req.query;
-  const filter: any = { isAvailable: true };
+  
+  // 1. Initialize an empty filter instead of forcing isAvailable: true
+  const filter: any = {};
   
   if (city) filter['location.city'] = city;
   if (category) filter.category = category;
 
-  const cars = await Car.find(filter).sort('-createdAt');
+  // 2. Add FOMO sorting: Available cars show first, then sorted by newest
+  const cars = await Car.find(filter).sort({ isAvailable: -1, createdAt: -1 });
   
+  console.log(`[DEBUG BACKEND - listCars]: Fetched ${cars.length} cars. Booked cars: ${cars.filter((c) => !c.isAvailable).length}`);
+
   res.status(200).json({ status: 'success', results: cars.length, data: { cars } });
 });
 
 
 
-export const listAllCars = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // Extract query parameters for homepage filtering
-  const { category, city, minPrice, maxPrice, limit = 10, page = 1 } = req.query;
 
-  // Build a dynamic MongoDB query object
-  const query: any = { isAvailable: true };
+export const listAllCars = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  // Extract query parameters for homepage filtering (added checkIn/checkOut for future search)
+  const { category, city, minPrice, maxPrice, limit = 10, page = 1, checkIn, checkOut } = req.query;
+
+  // 1. Initialize empty query - do NOT force isAvailable: true by default anymore
+  const query: any = {};
+
+  // 2. Future-proofing: If the user searches with specific dates, only show available cars
+  if (checkIn || checkOut) {
+    query.isAvailable = true;
+  }
 
   if (category) query.category = category;
   if (city) query['location.city'] = { $regex: new RegExp(city as string, 'i') };
-  
+
   if (minPrice || maxPrice) {
     query.pricePer12Hours = {};
     if (minPrice) query.pricePer12Hours.$gte = Number(minPrice);
     if (maxPrice) query.pricePer12Hours.$lte = Number(maxPrice);
   }
 
-  // Calculate pagination skip
   const skip = (Number(page) - 1) * Number(limit);
 
-  // Execute search with pagination
+  // 3. FOMO Sorting: Available cars first (true = 1, false = 0), then newest cars
   const cars = await Car.find(query)
-    .sort({ createdAt: -1 }) // Newest premium cars first
+    .sort({ isAvailable: -1, createdAt: -1 }) 
     .skip(skip)
     .limit(Number(limit));
+
+    console.log(`[DEBUG BACKEND]: Total cars fetched: ${cars.length}. Booked cars count: ${cars.filter((c: any) => c.isAvailable === false).length}`)
 
   const total = await Car.countDocuments(query);
 
@@ -256,5 +268,29 @@ export const confirmCarHandover = asyncHandler(async (req: Request, res: Respons
       ownerConfirmed: reservation.ownerConfirmedHandover,
       escrowStatus: reservation.escrowStatus
     }
+  });
+});
+
+export const getMyCarBookings = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  // 1. Extract the authenticated user's ID
+  const userId = req.user?._id?.toString();
+
+  if (!userId) {
+    return next(new AppError('Authentication context missing.', 401));
+  }
+
+  // 2. Query reservations belonging to this guest
+  const bookings = await CarReservation.find({ userId })
+    .populate({
+      path: 'carId',
+      // Select the critical fields needed for the Guest Dashboard cards
+      select: 'make carModel year category location images pricePer12Hours', 
+    })
+    .sort('-createdAt');
+
+  res.status(200).json({
+    status: 'success',
+    results: bookings.length,
+    data: { bookings },
   });
 });
