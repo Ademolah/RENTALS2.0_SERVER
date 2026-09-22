@@ -2,6 +2,9 @@ import { Request, Response, NextFunction } from 'express';
 import { PropertyService } from '../services/property.service.js';
 import { CloudinaryService } from '../services/cloudinary.service.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { Property } from '../models/Property.js';
+import { Reservation } from '../models/Reservation.js';
+import { AppError } from '../utils/AppError.js';
 
 
 export const createProperty = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
@@ -92,5 +95,32 @@ export const updateProperty = asyncHandler(async (req: Request, res: Response, n
     data: { 
       property 
     }
+  });
+});
+
+// Get incoming bookings for properties owned by the landlord
+export const getLandlordBookings = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  // 1. Safely extract and stringify the verified user ID from the request
+  const userId = req.user?._id?.toString();
+
+  if (!userId) {
+    return next(new AppError('Authentication context missing.', 401));
+  }
+
+  // 2. Pass the clean string value to the ownerId query mapping
+  const landlordProperties = await Property.find({ ownerId: userId }).select('_id');
+  const propertyIds = landlordProperties.map((p) => p._id);
+
+  // 3. Find all reservations associated with those property IDs
+  const bookings = await Reservation.find({ propertyId: { $in: propertyIds } })
+    .populate('userId', 'firstName lastName email phoneNumber')
+    // CRITICAL FIX: Added 'images' to the selection projection
+    .populate('propertyId', 'title category address images') 
+    .sort('-createdAt');
+
+  res.status(200).json({
+    status: 'success',
+    results: bookings.length,
+    data: { bookings },
   });
 });

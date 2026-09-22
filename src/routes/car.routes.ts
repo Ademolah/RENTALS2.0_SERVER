@@ -1,5 +1,7 @@
 import { Router } from 'express';
-import { listCars, initiateCarBooking, createCar, getCarById, listAllCars, confirmCarHandover, getMyCarBookings } from '../controllers/car.controller.js';
+import { listCars, initiateCarBooking, createCar, getCarById, listAllCars, confirmCarHandover, getMyCarBookings ,
+    getLandlordCars, getLandlordCarBookings, updateCar
+} from '../controllers/car.controller.js';
 import { protect, restrictTo } from '../middlewares/auth.middleware.js';
 import { upload } from '../middlewares/upload.middleware.js'; // 💡 1. IMPORT YOUR EXISTING MULTER MIDDLEWARE
 
@@ -16,6 +18,13 @@ router.get('/my-bookings', protect, getMyCarBookings);
 // 💡 2. ADD upload.array('images', 5) RIGHT HERE BEFORE createCar
 router.patch('/reservations/:reservationId/handover',  confirmCarHandover);
 router.post('/', restrictTo("ADMIN", "LANDLORD"), upload.array('images', 5), createCar);
+
+// Add these STATIC routes ABOVE your dynamic /:id routes!
+router.get('/landlord/fleet', protect, restrictTo('LANDLORD', 'ADMIN'), getLandlordCars);
+router.get('/landlord/bookings', protect, restrictTo('LANDLORD', 'ADMIN'), getLandlordCarBookings);
+
+// Add this DYNAMIC route BELOW
+router.patch('/:id', protect, restrictTo('LANDLORD', 'ADMIN'), updateCar);
 
 router.post('/book', initiateCarBooking);
 router.get('/:id', getCarById);

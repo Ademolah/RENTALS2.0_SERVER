@@ -62,7 +62,7 @@ export interface IUser {
   firstName: string;
   lastName: string;
   role: UserRole;
-  phoneNumber?: string;
+  phoneNumber?: string; // New addition
   isVerified: boolean;
   createdAt: Date;
   updatedAt: Date;

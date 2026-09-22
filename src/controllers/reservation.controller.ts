@@ -179,31 +179,6 @@ export const getMyBookings = asyncHandler(async (req: Request, res: Response, ne
 });
 
 
-// Get incoming bookings for properties owned by the landlord
-export const getLandlordBookings = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // 1. Safely extract and stringify the verified user ID from the request
-  const userId = req.user?._id?.toString();
-
-  if (!userId) {
-    return next(new AppError('Authentication context missing.', 401));
-  }
-
-  // 2. Pass the clean string value to the ownerId query mapping
-  const landlordProperties = await Property.find({ ownerId: userId }).select('_id');
-  const propertyIds = landlordProperties.map((p) => p._id);
-
-  // 3. Find all reservations associated with those property IDs
-  const bookings = await Reservation.find({ propertyId: { $in: propertyIds } })
-    .populate('userId', 'firstName lastName email phoneNumber')
-    .populate('propertyId', 'title category address')
-    .sort('-createdAt');
-
-  res.status(200).json({
-    status: 'success',
-    results: bookings.length,
-    data: { bookings },
-  });
-});
 
 
 // Confirm Check-In (Dual Confirmation for Escrow Release)

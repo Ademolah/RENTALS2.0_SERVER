@@ -294,3 +294,76 @@ export const getMyCarBookings = asyncHandler(async (req: Request, res: Response,
     data: { bookings },
   });
 });
+
+// --- GET ALL CARS LISTED BY LOGGED-IN LANDLORD ---
+export const getLandlordCars = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const userId = req.user?._id?.toString();
+
+  // 1. Guard clause: Stop execution if the user is not authenticated
+  if (!userId) {
+    return next(new AppError('You must be logged in to view your cars.', 401));
+  }
+  
+  // 2. userId is now guaranteed to be a string, resolving the TypeScript error
+  const cars = await Car.find({ ownerId: userId }).sort('-createdAt');
+
+  res.status(200).json({
+    status: 'success',
+    results: cars.length,
+    data: { cars }
+  });
+});
+
+
+// --- UPDATE CAR DETAILS (Pricing, Status, etc.) ---
+export const updateCar = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const userId = req.user?._id?.toString();
+
+  if (!userId) {
+    return next(new AppError('You must be logged in to perform this action.', 401));
+  }
+  
+  const car = await Car.findOneAndUpdate(
+    // Force TypeScript to treat this as a standard query object
+    { 
+      _id: req.params.id, 
+      ownerId: userId 
+    } as any, 
+    req.body, 
+    { new: true, runValidators: true }
+  );
+
+  if (!car) {
+    return next(new AppError('No car found or you do not have permission to edit it.', 404));
+  }
+
+  res.status(200).json({ status: 'success', data: { car } });
+});
+
+
+
+// --- GET INCOMING BOOKINGS FOR LANDLORD'S CARS ---
+export const getLandlordCarBookings = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const userId = req.user?._id?.toString();
+
+  // 1. Guard clause: Ensure the landlord is authenticated
+  if (!userId) {
+    return next(new AppError('You must be logged in to view your bookings.', 401));
+  }
+
+  // 2. Find all cars owned by this landlord (userId is now guaranteed to be a string)
+  const landlordCars = await Car.find({ ownerId: userId }).select('_id');
+  const carIds = landlordCars.map(c => c._id);
+
+  // 3. Find all reservations associated with those car IDs
+  const bookings = await CarReservation.find({ carId: { $in: carIds } })
+    .populate('userId', 'firstName lastName email phoneNumber') // Get guest details
+    .populate('carId', 'make carModel year category images')
+    .sort('-createdAt');
+
+  res.status(200).json({
+    status: 'success',
+    results: bookings.length,
+    data: { bookings }
+  });
+});
