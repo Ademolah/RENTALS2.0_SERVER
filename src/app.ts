@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import authRoutes from './routes/auth.routes.js';
 import propertyRoutes from "./routes/property.routes.js"
 import carRoutes from './routes/car.routes.js';
+import payoutRoutes from './routes/payout.routes.js'
 import reservationRoutes from './routes/reservation.routes.js';
 import { globalErrorHandler } from './middlewares/errorHandler';
 
@@ -22,6 +23,7 @@ app.use("/api/v1/auth", authRoutes)
 app.use("/api/v1/properties", propertyRoutes)
 app.use("/api/v1/cars", carRoutes)
 app.use("/api/v1/reservations", reservationRoutes)
+app.use('/api/v1/payouts', payoutRoutes)
 
 
 app.use(globalErrorHandler); // Global error handler

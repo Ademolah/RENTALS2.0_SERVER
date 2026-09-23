@@ -5,7 +5,8 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 
 export const registerUser = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const { email, password, firstName, lastName, role } = req.body;
+  // 1. ADDED phoneNumber here
+  const { email, password, firstName, lastName, role, phoneNumber } = req.body;
 
   // Prevent users from bypassing security to become ADMIN
   const assignedRole = role === 'ADMIN' ? 'USER' : role; 
@@ -23,6 +24,7 @@ export const registerUser = asyncHandler(async (req: Request, res: Response, nex
     passwordHash,
     firstName,
     lastName,
+    phoneNumber, // 2. ADDED phoneNumber here
     role: assignedRole || 'USER',
   });
 

@@ -55,6 +55,15 @@ export interface ICarReservation {
   updatedAt: Date;
 }
 
+export interface IBankDetails {
+  accountName: string;
+  accountNumber: string; // Stored as a string to preserve leading zeros
+  bankName: string;
+  bankCode: string;
+  recipientCode: string;
+  isVerified: boolean;
+}
+
 
 export interface IUser {
   email: string;
@@ -62,6 +71,7 @@ export interface IUser {
   firstName: string;
   lastName: string;
   role: UserRole;
+  bankDetails: IBankDetails;
   phoneNumber?: string; // New addition
   isVerified: boolean;
   createdAt: Date;

@@ -9,6 +9,35 @@ const userSchema = new Schema<IUserDocument>(
     lastName: { type: String, required: true, trim: true },
     role: { type: String, enum: ['USER', 'LANDLORD', 'ADMIN'], default: 'USER' },
     phoneNumber: { type: String, trim: true },
+    // Add this inside your UserSchema definition
+    bankDetails: {
+      accountName: {
+        type: String,
+        trim: true,
+      },
+      accountNumber: {
+        type: String,
+        trim: true,
+        minlength: 10,
+        maxlength: 10, // Nigerian NUBAN accounts are exactly 10 digits
+      },
+      bankName: {
+        type: String,
+        trim: true,
+      },
+      bankCode: {
+        type: String,
+        trim: true,
+      },
+      recipientCode: {
+        type: String,
+        trim: true,
+      },
+      isVerified: {
+        type: Boolean,
+        default: false,
+      }
+    },
     isVerified: { type: Boolean, default: false },
   },
   { timestamps: true }
