@@ -3,6 +3,8 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { AppError } from '../utils/AppError';
 import {User} from '../models/User';
 import {PaystackService} from '../services/paystack.service';
+import { Reservation } from '../models/Reservation';
+import { CarReservation } from '../models/CarReservation';
 
 export const getAvailableBanks = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const banks = await PaystackService.getBanks();
@@ -95,3 +97,86 @@ export const saveLandlordBankDetails = asyncHandler(async (req: Request, res: Re
   });
 });
 
+
+ 
+export const processLandlordPayout = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { bookingId } = req.params;
+  // Handle potential variations in how the ID is attached to the req.user object
+  const landlordId = req.user?._id?.toString();
+
+  // 1. Dual Lookup: Determine if this is a Property or Car reservation
+  let reservation: any = await Reservation.findById(bookingId).populate('propertyId');
+  let isCar = false;
+
+  if (!reservation) {
+    reservation = await CarReservation.findById(bookingId).populate('carId');
+    isCar = true;
+  }
+
+  if (!reservation) {
+    return next(new AppError('Reservation not found', 404));
+  }
+
+  // 2. Validate Ownership via the populated asset
+  const asset = isCar ? reservation.carId : reservation.propertyId;
+  
+  // Safely extract the owner ID depending on the asset type to satisfy TypeScript
+  const ownerId = asset?.ownerId;
+
+
+  // Protect against undefined and verify authorization
+  if (!ownerId || ownerId.toString() !== landlordId) {
+    return next(new AppError('Unauthorized access to this asset payout', 403));
+  }
+
+  // 3. Enforce Idempotency using exact schema enums
+  if (reservation.payoutStatus !== 'HELD_IN_ESCROW') {
+    return next(new AppError(`Payout cannot be processed. Current status: ${reservation.payoutStatus}`, 400));
+  }
+
+  // 4. Retrieve Landlord's Recipient Code from the nested bankDetails object
+  const landlord = await User.findById(landlordId);
+  
+  // Using optional chaining to drill into the exact location of the code
+  if (!landlord || !landlord.bankDetails?.recipientCode) {
+    return next(new AppError('Payout account not configured. Please setup your bank details first.', 400));
+  }
+
+  // 5. Financial Mathematics
+  const PLATFORM_FEE_PERCENTAGE = 0.05; // 10%
+  const grossAmount = reservation.totalAmount;
+  const platformFee = grossAmount * PLATFORM_FEE_PERCENTAGE;
+  const payoutAmount = grossAmount - platformFee;
+
+  // 6. Initiate Paystack Transfer
+  const transferReason = `Payout for ${isCar ? 'Vehicle' : 'Property'} Reservation ${reservation._id}`;
+  
+  const transferResult = await PaystackService.initiateTransfer(
+    payoutAmount, 
+    landlord.bankDetails.recipientCode, // Targeted exact schema path
+    reservation._id.toString(),
+    transferReason
+  );
+
+  // 7. Lock the Ledger State using exact schema enums
+  if (isCar) {
+    reservation.payoutStatus = 'RELEASED_TO_OWNER';
+    reservation.escrowStatus = 'RELEASED'; 
+    reservation.ownerConfirmedHandover = true;
+  } else {
+    reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
+    reservation.checkInConfirmedByLandlord = true;
+  }
+  
+  await reservation.save();
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Payout initiated successfully. Funds are en route to your bank account.',
+    data: {
+      transferCode: transferResult.data.transfer_code,
+      netPayout: payoutAmount,
+      status: reservation.payoutStatus
+    }
+  });
+});

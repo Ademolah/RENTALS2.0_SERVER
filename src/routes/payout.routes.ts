@@ -3,7 +3,7 @@ import { protect, restrictTo } from '../middlewares/auth.middleware';
 import { 
   getAvailableBanks, 
   verifyBankAccount, 
-  saveLandlordBankDetails 
+  saveLandlordBankDetails , processLandlordPayout
 } from '../controllers/payout.controller';
 
 const router = Router();
@@ -16,5 +16,7 @@ router.use(protect);
 router.get('/banks', restrictTo('ADMIN', 'LANDLORD'), getAvailableBanks);
 router.post('/banks/verify', restrictTo('ADMIN', 'LANDLORD'), verifyBankAccount);
 router.post('/banks/save', restrictTo('ADMIN', 'LANDLORD'), saveLandlordBankDetails);
+
+router.post('/execute/:bookingId', restrictTo('ADMIN', 'LANDLORD'), processLandlordPayout);
 
 export default router;

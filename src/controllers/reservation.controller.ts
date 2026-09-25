@@ -55,13 +55,14 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
 
   const event = req.body;
 
+  // ==========================================
+  // EVENT 1: GUEST PAYMENT SUCCESS (INCOMING)
+  // ==========================================
   if (event.event === 'charge.success') {
     const reference = event.data.reference;
     const txData = await PaystackService.verifyTransaction(reference);
 
     if (txData.status === 'success') {
-      
-      // Extract bundled metadata
       const customFields = event.data.metadata.custom_fields || [];
       const metadata = customFields.reduce((acc: any, field: any) => {
         acc[field.variable_name] = field.value;
@@ -72,9 +73,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
 
       try {
         switch (bookingType) {
-          
           case 'PROPERTY': {
-            // --- 🏠 PROPERTY RESERVATION LOGIC (Preserved perfectly) ---
             await Reservation.create({
               userId: metadata.userId,
               propertyId: metadata.propertyId,
@@ -95,23 +94,17 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
           }
 
           case 'CAR': {
-            // --- 🚗 CAR RESERVATION LOGIC (Upgraded) ---
-            // 1. Fetch the pending reservation to access exact dates
             const reservation = await CarReservation.findById(metadata.reservationId);
             
             if (reservation) {
-              // 2. Update Reservation Status & Lock Escrow
               reservation.paymentStatus = 'SUCCESS';
               reservation.escrowStatus = 'HELD'; 
               reservation.paystackReference = reference;
-              // Ensure it remains ACTIVE
               reservation.reservationStatus = 'ACTIVE'; 
               await reservation.save();
 
-              // 3. Update Car Availability
               await Car.findByIdAndUpdate(metadata.carId, {
                 isAvailable: false, 
-                // Set the next available date so the UI knows when it frees up
                 nextAvailableDate: reservation.dropoffTime 
               });
               
@@ -121,33 +114,83 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
           }
 
           case 'HOTEL': {
-            // --- 🏨 HOTEL RESERVATION LOGIC (Future-proofed) ---
             console.log(`⏳ [Webhook] Hotel logic placeholder triggered (Ref: ${reference})`);
-            // TODO: await HotelReservation.create(...)
-            // TODO: await HotelRoom.findByIdAndUpdate(...)
             break;
           }
 
           case 'VIP': {
-            // --- 👑 VIP RESERVATION LOGIC (Future-proofed) ---
             console.log(`⏳ [Webhook] VIP logic placeholder triggered (Ref: ${reference})`);
-            // TODO: await VipReservation.create(...)
-            // TODO: await VipVenue.findByIdAndUpdate(...)
             break;
           }
 
           default:
             console.warn(`⚠️ [Webhook] Unknown bookingType received: ${bookingType}`);
         }
-
-        // --- 📨 GLOBAL POST-PAYMENT ACTIONS ---
-        // These will fire for ALL successful booking types.
-        // TODO: NotificationService.sendBookingEmail(userEmail, receiptData);
-        // TODO: NotificationService.sendHostAlert(hostId, "New booking secured");
-
       } catch (dbError) {
         console.error('❌ Webhook Database Write Error:', dbError);
       }
+    }
+  } 
+  
+  // ==========================================
+  // EVENT 2: LANDLORD PAYOUT SUCCESS (OUTGOING)
+  // ==========================================
+  else if (event.event === 'transfer.success') {
+    const transferData = event.data;
+    const bookingId = transferData.reference; 
+
+    try {
+      let reservation: any = await Reservation.findById(bookingId);
+      let isCar = false;
+      
+      if (!reservation) {
+        reservation = await CarReservation.findById(bookingId);
+        isCar = true;
+      }
+
+      if (reservation) {
+        // The money officially hit the landlord's bank account. Close the lifecycle.
+        reservation.reservationStatus = 'COMPLETED'; 
+        await reservation.save();
+        console.log(`✅ [Webhook] Transfer SUCCESS for Booking: ${bookingId}. Funds delivered.`);
+      }
+    } catch (dbError) {
+      console.error('❌ Webhook Transfer Success DB Error:', dbError);
+    }
+  } 
+  
+  // ==========================================
+  // EVENT 3: LANDLORD PAYOUT FAILED (BOUNCED)
+  // ==========================================
+  else if (event.event === 'transfer.failed' || event.event === 'transfer.reversed') {
+    const transferData = event.data;
+    const bookingId = transferData.reference;
+
+    try {
+      let reservation: any = await Reservation.findById(bookingId);
+      let isCar = false;
+      
+      if (!reservation) {
+        reservation = await CarReservation.findById(bookingId);
+        isCar = true;
+      }
+
+      if (reservation) {
+        // The bank rejected it (e.g., wrong account number). Revert escrow so they can try again.
+        reservation.payoutStatus = 'HELD_IN_ESCROW';
+        
+        if (isCar) {
+          reservation.escrowStatus = 'HELD';
+          reservation.ownerConfirmedHandover = false; // Reset the button on their dashboard
+        } else {
+          reservation.checkInConfirmedByLandlord = false; // Reset the button on their dashboard
+        }
+        
+        await reservation.save();
+        console.error(`❌ [Webhook] Transfer FAILED for Booking: ${bookingId}. Reason: ${transferData.reason}`);
+      }
+    } catch (dbError) {
+      console.error('❌ Webhook Transfer Failed DB Error:', dbError);
     }
   }
 });

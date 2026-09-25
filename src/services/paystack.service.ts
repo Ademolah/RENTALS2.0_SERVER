@@ -6,6 +6,7 @@ import https from 'https';
 
 export class PaystackService {
   private static baseURL = 'https://api.paystack.co';
+  
 
   private static get headers() {
     const secretKey = process.env.PAYSTACK_SECRET_KEY;
@@ -125,7 +126,42 @@ static async createTransferRecipient(name: string, accountNumber: string, bankCo
 }
 
 
+static async initiateTransfer(amountInNaira: number, recipientCode: string, reference: string, reason: string) {
+  try {
+    const secretKey = process.env.PAYSTACK_SECRET_KEY;
+    
+    if (!secretKey) {
+      throw new AppError("Payment gateway configuration is missing.", 500);
+    }
 
+    // Paystack requires the amount in Kobo (base currency * 100)
+    const amountInKobo = Math.round(amountInNaira * 100);
+
+    const payload = {
+      source: 'balance', 
+      amount: amountInKobo,
+      recipient: String(recipientCode).trim(),
+      reference: String(reference).trim(), // Pass the booking ID as reference for easy reconciliation
+      reason: String(reason).trim()
+    };
+
+    const response = await axios.post('https://api.paystack.co/transfer', payload, {
+      headers: {
+        Authorization: `Bearer ${secretKey.trim()}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    return response.data;
+  } catch (error: any) {
+    console.error('Paystack Transfer Error:', error.response?.data || error.message);
+    // Standardize the error response to match your backend error handling
+    throw new AppError(
+      error.response?.data?.message || 'Failed to initiate Paystack transfer',
+      error.response?.status || 400
+    );
+  }
+}
 
   // 4. Initialize Transaction
   static async initializeTransaction(
