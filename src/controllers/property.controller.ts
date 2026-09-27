@@ -175,3 +175,68 @@ export const getLandlordBookings = asyncHandler(async (req: Request, res: Respon
     data: { bookings },
   });
 });
+
+
+
+
+export const checkHotelRoomAvailability = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { hotelId, roomTypeId } = req.params;
+  const { checkIn, checkOut } = req.query;
+
+  if (!checkIn || !checkOut) {
+    return next(new AppError('Check-in and check-out dates are required.', 400));
+  }
+
+  const startDate = new Date(checkIn as string);
+  const endDate = new Date(checkOut as string);
+
+  // 1. Validate Hotel and Room Type
+  const hotel = await Property.findById(hotelId);
+  if (!hotel || hotel.category !== 'HOTEL') {
+    return next(new AppError('Hotel not found.', 404));
+  }
+
+  const roomType = hotel.roomTypes?.find(room => room._id?.toString() === roomTypeId);
+  if (!roomType) {
+    return next(new AppError('Room type not found in this hotel.', 404));
+  }
+
+  // 2. Count overlapping ACTIVE reservations for this specific room
+
+  const filter: any = {
+    reservationStatus: 'ACTIVE',
+    $and: [
+      { checkInDate: { $lt: endDate } },
+      { checkOutDate: { $gt: startDate } }
+    ]
+  };
+
+  // 2. Handle propertyId safely (handling both strings and arrays of strings)
+  if (hotelId) {
+    filter.propertyId = Array.isArray(hotelId) ? { $in: hotelId } : hotelId;
+  }
+
+  // 3. Handle roomTypeId safely
+  if (roomTypeId) {
+    filter.roomTypeId = Array.isArray(roomTypeId) ? { $in: roomTypeId } : roomTypeId;
+  }
+
+  // 4. Run the query
+  const overlappingReservationsCount = await Reservation.countDocuments(filter);
+
+
+  // 3. Calculate remaining inventory
+  const availableRoomsLeft = roomType.totalInventory - overlappingReservationsCount;
+  const isAvailable = availableRoomsLeft > 0;
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      available: isAvailable,
+      roomsRemaining: availableRoomsLeft > 0 ? availableRoomsLeft : 0,
+      message: isAvailable 
+        ? `Available! Only ${availableRoomsLeft} left at this price.` 
+        : 'Sold out for these dates.'
+    }
+  });
+});

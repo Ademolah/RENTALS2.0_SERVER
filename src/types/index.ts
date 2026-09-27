@@ -1,4 +1,4 @@
-import { Document, Types } from 'mongoose';
+import { Schema, model, Document, Types } from 'mongoose';
 
 // --- ENUMS & LITERALS ---
 export type UserRole = 'USER' | 'LANDLORD' | 'ADMIN'; 
@@ -12,6 +12,37 @@ export type PayoutStatus = 'HELD_IN_ESCROW' | 'RELEASED_TO_LANDLORD' | 'DIRECT_T
 
 export type CarCategory = 'LUXURY' | 'SUV' | 'SEDAN' | 'CHAUFFEUR_DRIVEN' | 'VAN';
 export type Transmission = 'AUTOMATIC' | 'MANUAL';
+
+
+
+// 1. Define the Room Type Interface
+export interface IRoomType {
+  _id?: Types.ObjectId;
+  name: string;             // e.g., "Executive Suite"
+  pricePerNight: number;
+  capacity: {
+    adults: number;
+    children: number;
+  };
+  totalInventory: number;   // e.g., 5 rooms available in the physical building
+  amenities: string[];
+  images: string[];
+  description?: string;
+}
+
+// 2. Define the Sub-schema
+const roomTypeSchema = new Schema<IRoomType>({
+  name: { type: String, required: true },
+  pricePerNight: { type: Number, required: true },
+  capacity: {
+    adults: { type: Number, required: true, default: 2 },
+    children: { type: Number, required: true, default: 0 }
+  },
+  totalInventory: { type: Number, required: true, min: 1 },
+  amenities: [{ type: String }],
+  images: [{ type: String }],
+  description: { type: String }
+});
 
 export interface ICar {
   make: string;
@@ -86,6 +117,7 @@ export interface IProperty {
   description: string;
   category: PropertyCategory;
   ownerId: Types.ObjectId; 
+  roomTypes?: IRoomType[];
   pricePerNight: number;
   currency: string; 
   address: {
@@ -114,6 +146,7 @@ export interface IReservation {
   userId: Types.ObjectId;     
   checkInDate: Date;
   checkOutDate: Date;
+  roomTypeId?: Types.ObjectId;
   totalAmount: number;
   paymentStatus: PaymentStatus;
   reservationStatus: ReservationStatus;

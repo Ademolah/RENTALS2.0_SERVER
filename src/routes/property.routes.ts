@@ -5,7 +5,7 @@ import {
   getProperty,  
   updateProperty,
   checkPropertyAvailability,
-  getLandlordBookings // 1. Added this import
+  getLandlordBookings, checkHotelRoomAvailability
 } from '../controllers/property.controller.js';
 import { protect, restrictTo } from '../middlewares/auth.middleware.js';
 import { upload } from '../middlewares/upload.middleware.js';
@@ -20,6 +20,8 @@ router.post(
   upload.array('images', 10), 
   createProperty
 );
+
+router.get('/:hotelId/rooms/:roomTypeId/availability', checkHotelRoomAvailability);
 
 router.get('/', getProperties);
 router.post('/:id/availability', checkPropertyAvailability);

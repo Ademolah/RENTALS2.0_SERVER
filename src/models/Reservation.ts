@@ -4,6 +4,10 @@ import { IReservationDocument } from '../types/index.js';
 const reservationSchema = new Schema<IReservationDocument>(
   {
     propertyId: { type: Schema.Types.ObjectId, ref: 'Property', required: true },
+    
+    // NEW: Added roomTypeId for Hotel reservations
+    roomTypeId: { type: Schema.Types.ObjectId }, 
+    
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     checkInDate: { type: Date, required: true },
     checkOutDate: { type: Date, required: true },
@@ -25,15 +29,15 @@ const reservationSchema = new Schema<IReservationDocument>(
       enum: ['HELD_IN_ESCROW', 'RELEASED_TO_LANDLORD', 'DIRECT_TO_RENTALS', 'REFUNDED'],
       default: 'HELD_IN_ESCROW'
     },
-isRentalsProperty: { type: Boolean, default: false },
-    paystackReference: { type: String, unique: true, sparse: true }, // Sparse allows multiple nulls if unpaid
+    isRentalsProperty: { type: Boolean, default: false },
+    paystackReference: { type: String, unique: true, sparse: true }, 
     guestsCount: { type: Number, required: true, min: 1 },
   },
    { timestamps: true }
 );
 
-// Indexes to quickly find active bookings for a specific property (prevents double-booking)
-reservationSchema.index({ propertyId: 1, checkInDate: 1, checkOutDate: 1 });
+// Added roomTypeId to the compound index for faster hotel availability queries
+reservationSchema.index({ propertyId: 1, roomTypeId: 1, checkInDate: 1, checkOutDate: 1 });
 reservationSchema.index({ userId: 1, reservationStatus: 1 });
 
 export const Reservation = model<IReservationDocument>('Reservation', reservationSchema);
