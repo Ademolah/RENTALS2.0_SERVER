@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { 
     listCars, initiateCarBooking, createCar, getCarById, listAllCars, 
     confirmCarHandover, getMyCarBookings, getLandlordCars, 
-    getLandlordCarBookings, updateCar 
+    getLandlordCarBookings, updateCar , checkCarAvailability
 } from '../controllers/car.controller.js';
 import { protect, restrictTo } from '../middlewares/auth.middleware.js';
 import { upload } from '../middlewares/upload.middleware.js'; 
@@ -17,6 +17,7 @@ router.get('/all', listAllCars);
 
 // 💡 MOVED THIS UP: Anyone can view a car's details
 router.get('/:id', getCarById);
+router.post('/:id/availability', checkCarAvailability);
 
 
 // ==========================================

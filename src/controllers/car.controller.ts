@@ -367,3 +367,54 @@ export const getLandlordCarBookings = asyncHandler(async (req: Request, res: Res
     data: { bookings }
   });
 });
+
+// Add this below getCarById in src/controllers/car.controller.ts
+
+export const checkCarAvailability = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { startDate, endDate } = req.body;
+  const carId = req.params.id;
+
+  if (!startDate || !endDate) {
+    return next(new AppError('Please provide both startDate and endDate', 400));
+  }
+
+  const requestedStart = new Date(startDate);
+  const requestedEnd = new Date(endDate);
+
+  if (requestedStart >= requestedEnd) {
+    return next(new AppError('Start date must be before end date', 400));
+  }
+
+  const car = await Car.findById(carId);
+
+  if (!car) {
+    return next(new AppError('No vehicle found with that ID', 404));
+  }
+
+  // Global Kill-Switch Check
+  if (!car.isAvailable) {
+    return res.status(200).json({ 
+      available: false, 
+      message: 'This vehicle is currently offline or under maintenance.' 
+    });
+  }
+
+  // Date Overlap Engine
+  const hasOverlap = car.bookedDates.some((booking) => {
+    const existingStart = new Date(booking.startDate);
+    const existingEnd = new Date(booking.endDate);
+    return (requestedStart < existingEnd && requestedEnd > existingStart);
+  });
+
+  if (hasOverlap) {
+    return res.status(200).json({ 
+      available: false, 
+      message: 'These dates are already booked. Please select different dates.' 
+    });
+  }
+
+  res.status(200).json({ 
+    available: true, 
+    message: 'Vehicle is available for these dates!' 
+  });
+});

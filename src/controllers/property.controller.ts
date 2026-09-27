@@ -76,6 +76,57 @@ export const getProperty = asyncHandler(async (req: Request, res: Response, next
   });
 });
 
+// Add this below getProperty in src/controllers/property.controller.ts
+
+export const checkPropertyAvailability = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { startDate, endDate } = req.body;
+  const propertyId = req.params.id;
+
+  if (!startDate || !endDate) {
+    return next(new AppError('Please provide both startDate and endDate', 400));
+  }
+
+  const requestedStart = new Date(startDate);
+  const requestedEnd = new Date(endDate);
+
+  if (requestedStart >= requestedEnd) {
+    return next(new AppError('Start date must be before end date', 400));
+  }
+
+  const property = await Property.findById(propertyId);
+
+  if (!property) {
+    return next(new AppError('No property found with that ID', 404));
+  }
+
+  // Global Kill-Switch Check
+  if (!property.isAvailable) {
+    return res.status(200).json({ 
+      available: false, 
+      message: 'This property is currently offline or under maintenance.' 
+    });
+  }
+
+  // Date Overlap Engine
+  const hasOverlap = property.bookedDates.some((booking) => {
+    const existingStart = new Date(booking.startDate);
+    const existingEnd = new Date(booking.endDate);
+    return (requestedStart < existingEnd && requestedEnd > existingStart);
+  });
+
+  if (hasOverlap) {
+    return res.status(200).json({ 
+      available: false, 
+      message: 'These dates are already booked. Please select different dates.' 
+    });
+  }
+
+  res.status(200).json({ 
+    available: true, 
+    message: 'Property is available for these dates!' 
+  });
+});
+
 
 // --- UPDATE PROPERTY CONTROLLER ---
 export const updateProperty = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {

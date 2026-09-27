@@ -28,7 +28,15 @@ const carSchema = new Schema<ICarDocument>(
     features: [{ type: String }],
     images: [{ type: String }],
     isAvailable: { type: Boolean, default: true },
+    bookedDates: [
+      {
+        startDate: { type: Date, required: true },
+        endDate: { type: Date, required: true },
+        reservationId: { type: Schema.Types.ObjectId, ref: 'CarReservation' }
+      }
+    ],
   },
+  
   { timestamps: true }
 );
 

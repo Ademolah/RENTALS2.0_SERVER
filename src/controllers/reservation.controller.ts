@@ -11,9 +11,8 @@ import { Car } from '../models/Car.js';
 
 export const initiateBooking = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { propertyId, checkInDate, checkOutDate, guestsCount, totalAmount } = req.body;
-  const user = req.user as any; // Bypass TS 'never' type restriction on req.user
+  const user = req.user as any; 
 
-  // 1. Bundle data into Paystack Metadata
   const metadata = {
     custom_fields: [
       { display_name: "Property ID", variable_name: "propertyId", value: propertyId },
@@ -24,7 +23,6 @@ export const initiateBooking = asyncHandler(async (req: Request, res: Response, 
     ]
   };
 
-  // 2. Initialize Paystack Checkout (Pass 3 arguments matching your service)
   const paystackData = await PaystackService.initializeTransaction(
     user.email,
     totalAmount,
@@ -45,7 +43,6 @@ export const initiateBooking = asyncHandler(async (req: Request, res: Response, 
  * Webhook Endpoint
  */
 export const paystackWebhook = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // 1. Acknowledge Receipt IMMEDIATELY (Paystack requires a 200 OK within seconds)
   res.status(200).send('Webhook received');
 
   const signature = req.headers['x-paystack-signature'] as string;
@@ -74,7 +71,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
       try {
         switch (bookingType) {
           case 'PROPERTY': {
-            await Reservation.create({
+            const newReservation = await Reservation.create({
               userId: metadata.userId,
               propertyId: metadata.propertyId,
               checkInDate: new Date(metadata.checkInDate),
@@ -85,11 +82,17 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
               paymentStatus: 'SUCCESS'
             });
 
+            // SURGICAL INSERTION: Push into bookedDates array instead of taking offline
             await Property.findByIdAndUpdate(metadata.propertyId, {
-              isAvailable: false,
-              nextAvailableDate: new Date(metadata.checkOutDate)
+              $push: {
+                bookedDates: {
+                  startDate: new Date(metadata.checkInDate),
+                  endDate: new Date(metadata.checkOutDate),
+                  reservationId: newReservation._id
+                }
+              }
             });
-            console.log(`✅ [Webhook] Property Reservation created (Ref: ${reference})`);
+            console.log(`✅ [Webhook] Property Reservation created & Dates Locked (Ref: ${reference})`);
             break;
           }
 
@@ -103,12 +106,18 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
               reservation.reservationStatus = 'ACTIVE'; 
               await reservation.save();
 
+              // SURGICAL INSERTION: Push into bookedDates array instead of taking offline
               await Car.findByIdAndUpdate(metadata.carId, {
-                isAvailable: false, 
-                nextAvailableDate: reservation.dropoffTime 
+                $push: {
+                  bookedDates: {
+                    startDate: reservation.pickupTime,
+                    endDate: reservation.dropoffTime,
+                    reservationId: reservation._id
+                  }
+                }
               });
               
-              console.log(`✅ [Webhook] Car Reservation secured (Ref: ${reference})`);
+              console.log(`✅ [Webhook] Car Reservation secured & Dates Locked (Ref: ${reference})`);
             }
             break;
           }
@@ -149,7 +158,6 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
       }
 
       if (reservation) {
-        // The money officially hit the landlord's bank account. Close the lifecycle.
         reservation.reservationStatus = 'COMPLETED'; 
         await reservation.save();
         console.log(`✅ [Webhook] Transfer SUCCESS for Booking: ${bookingId}. Funds delivered.`);
@@ -176,14 +184,13 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
       }
 
       if (reservation) {
-        // The bank rejected it (e.g., wrong account number). Revert escrow so they can try again.
         reservation.payoutStatus = 'HELD_IN_ESCROW';
         
         if (isCar) {
           reservation.escrowStatus = 'HELD';
-          reservation.ownerConfirmedHandover = false; // Reset the button on their dashboard
+          reservation.ownerConfirmedHandover = false; 
         } else {
-          reservation.checkInConfirmedByLandlord = false; // Reset the button on their dashboard
+          reservation.checkInConfirmedByLandlord = false; 
         }
         
         await reservation.save();
@@ -196,17 +203,13 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
 });
 
 
-
-// Get guest's personal booking history
 export const getMyBookings = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // 1. Safely extract the stringified user ID
   const userId = req.user?._id?.toString();
 
   if (!userId) {
     return next(new AppError('Authentication context missing.', 401));
   }
 
-  // 2. Query reservations belonging specifically to this user
   const bookings = await Reservation.find({ userId })
     .populate({
       path: 'propertyId',
@@ -222,9 +225,6 @@ export const getMyBookings = asyncHandler(async (req: Request, res: Response, ne
 });
 
 
-
-
-// Confirm Check-In (Dual Confirmation for Escrow Release)
 export const confirmCheckIn = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { reservationId } = req.params;
   const userId = req.user?._id?.toString();
@@ -236,16 +236,13 @@ export const confirmCheckIn = asyncHandler(async (req: Request, res: Response, n
   }
 
   const property = reservation.propertyId as any;
-
   let updated = false;
 
-  // Check if caller is the Guest
   if (reservation.userId.toString() === userId) {
     reservation.checkInConfirmedByGuest = true;
     updated = true;
   }
 
-  // Check if caller is the Landlord or Admin
   if (property.ownerId.toString() === userId || userRole === 'ADMIN') {
     reservation.checkInConfirmedByLandlord = true;
     updated = true;
@@ -255,13 +252,9 @@ export const confirmCheckIn = asyncHandler(async (req: Request, res: Response, n
     return next(new AppError('You are not authorized to confirm check-in for this booking', 403));
   }
 
-  // ESCROW TRIGGER: If both parties confirmed check-in
   if (reservation.checkInConfirmedByGuest && reservation.checkInConfirmedByLandlord) {
     if (!reservation.isRentalsProperty && reservation.payoutStatus === 'HELD_IN_ESCROW') {
-      // Flag payout as ready for settlement to landlord subaccount
       reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
-      
-      // Paystack Subaccount Split Transfer trigger will be called here
       console.log(`[ESCROW RELEASED] Booking ${reservation._id} funds authorized for payout.`);
     }
   }

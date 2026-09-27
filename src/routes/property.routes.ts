@@ -4,6 +4,7 @@ import {
   getProperties, 
   getProperty,  
   updateProperty,
+  checkPropertyAvailability,
   getLandlordBookings // 1. Added this import
 } from '../controllers/property.controller.js';
 import { protect, restrictTo } from '../middlewares/auth.middleware.js';
@@ -21,6 +22,7 @@ router.post(
 );
 
 router.get('/', getProperties);
+router.post('/:id/availability', checkPropertyAvailability);
 
 // 2. THIS MUST GO HERE: Static routes always go above dynamic /:id routes
 router.get('/landlord-bookings', protect, restrictTo('LANDLORD', 'ADMIN'), getLandlordBookings);

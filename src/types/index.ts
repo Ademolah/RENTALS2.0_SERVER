@@ -1,7 +1,7 @@
 import { Document, Types } from 'mongoose';
 
 // --- ENUMS & LITERALS ---
-export type UserRole = 'USER' | 'LANDLORD' | 'ADMIN'; // 'ADMIN' is for your internal "Rentals" team
+export type UserRole = 'USER' | 'LANDLORD' | 'ADMIN'; 
 export type PropertyCategory = 'CAR RENTAL' | 'SHORTLET' | 'VIP RESERVATION' | 'HOTEL';
 export type PaymentStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'REFUNDED';
 export type ReservationStatus = 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
@@ -9,7 +9,6 @@ export type ReservationStatus = 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
 // --- DOMAIN INTERFACES ---
 
 export type PayoutStatus = 'HELD_IN_ESCROW' | 'RELEASED_TO_LANDLORD' | 'DIRECT_TO_RENTALS' | 'REFUNDED';
-
 
 export type CarCategory = 'LUXURY' | 'SUV' | 'SEDAN' | 'CHAUFFEUR_DRIVEN' | 'VAN';
 export type Transmission = 'AUTOMATIC' | 'MANUAL';
@@ -20,7 +19,7 @@ export interface ICar {
   year: number;
   category: CarCategory;
   transmission: Transmission;
-  ownerId: Types.ObjectId; // References User (Landlord/Admin)
+  ownerId: Types.ObjectId; 
   pricePer12Hours: number;
   currency: string;
   location: {
@@ -30,9 +29,14 @@ export interface ICar {
   };
   description: string;
   seatNumber: string;
-  features: string[]; // e.g., ['Leather Seats', 'Bluetooth', 'Armored']
+  features: string[]; 
   images: string[];
   isAvailable: boolean;
+  bookedDates: {
+    startDate: Date;
+    endDate: Date;
+    reservationId?: Types.ObjectId;
+  }[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -57,13 +61,12 @@ export interface ICarReservation {
 
 export interface IBankDetails {
   accountName: string;
-  accountNumber: string; // Stored as a string to preserve leading zeros
+  accountNumber: string; 
   bankName: string;
   bankCode: string;
   recipientCode: string;
   isVerified: boolean;
 }
-
 
 export interface IUser {
   email: string;
@@ -72,7 +75,7 @@ export interface IUser {
   lastName: string;
   role: UserRole;
   bankDetails: IBankDetails;
-  phoneNumber?: string; // New addition
+  phoneNumber?: string; 
   isVerified: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -82,9 +85,9 @@ export interface IProperty {
   title: string;
   description: string;
   category: PropertyCategory;
-  ownerId: Types.ObjectId; // References User
+  ownerId: Types.ObjectId; 
   pricePerNight: number;
-  currency: string; // e.g., 'NGN' for Paystack
+  currency: string; 
   address: {
     street: string;
     city: string;
@@ -93,27 +96,32 @@ export interface IProperty {
     coordinates?: { lat: number; lng: number };
   };
   amenities: string[];
-  images: string[]; // Array of image URLs
+  images: string[]; 
   isAvailable: boolean;
   nextAvailableDate?: Date;
+  bookedDates: {
+    startDate: Date;
+    endDate: Date;
+    reservationId?: Types.ObjectId;
+  }[];
   maxGuests: number;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export interface IReservation {
-  propertyId: Types.ObjectId; // References Property
-  userId: Types.ObjectId;     // References User (Guest)
+  propertyId: Types.ObjectId; 
+  userId: Types.ObjectId;     
   checkInDate: Date;
   checkOutDate: Date;
   totalAmount: number;
   paymentStatus: PaymentStatus;
   reservationStatus: ReservationStatus;
-  paystackReference?: string; // Crucial for payment verification later
+  paystackReference?: string; 
   checkInConfirmedByGuest: boolean;
   checkInConfirmedByLandlord: boolean;
   payoutStatus: PayoutStatus;
-  isRentalsProperty: boolean; // True if listed directly by Rentals Admin
+  isRentalsProperty: boolean; 
   guestsCount: number;
   createdAt: Date;
   updatedAt: Date;

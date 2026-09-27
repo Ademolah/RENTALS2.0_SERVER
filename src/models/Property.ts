@@ -31,6 +31,13 @@ const propertySchema = new Schema<IPropertyDocument>(
       type: Date,
       default: null // <-- Add this!
     },
+    bookedDates: [
+      {
+        startDate: { type: Date, required: true },
+        endDate: { type: Date, required: true },
+        reservationId: { type: Schema.Types.ObjectId, ref: 'Reservation' }
+      }
+    ],
     maxGuests: { type: Number, required: true, min: 1 },
   },
   { timestamps: true }
