@@ -14,7 +14,6 @@ const roomTypeSchema = new Schema<IRoomType>({
   description: { type: String }
 });
 
-
 const propertySchema = new Schema<IPropertyDocument>(
   {
     title: { type: String, required: true, trim: true },
@@ -24,22 +23,30 @@ const propertySchema = new Schema<IPropertyDocument>(
       enum: ['CAR RENTAL', 'SHORTLET', 'VIP RESERVATION', 'HOTEL'], 
       required: true 
     },
-
+    startingPrice: { type: Number },
+    hasBreakfast: { type: Boolean, default: false },
     roomTypes: {
-    type: [roomTypeSchema],
-    validate: {
-      validator: function(this: any, v: any) {
-        if (this.category === 'HOTEL') {
-          return v && v.length > 0;
-        }
-        return true;
-      },
-      message: 'A Hotel must have at least one room type defined.'
-    }
-  },
-  
+      type: [roomTypeSchema],
+      validate: {
+        validator: function(this: any, v: any) {
+          if (this.category === 'HOTEL') {
+            return v && v.length > 0;
+          }
+          return true;
+        },
+        message: 'A Hotel must have at least one room type defined.'
+      }
+    },
     ownerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    pricePerNight: { type: Number, required: true, min: 0 },
+    
+    // SURGICAL FIX 1: Only require for Shortlets and VIPs
+    pricePerNight: { 
+      type: Number, 
+      required: function(this: any) { 
+        return this.category === 'SHORTLET' || this.category === 'VIP RESERVATION'; 
+      }, 
+      min: 0 
+    },
     currency: { type: String, default: 'NGN' },
     address: {
       street: { type: String, required: true },
@@ -51,15 +58,12 @@ const propertySchema = new Schema<IPropertyDocument>(
         lng: { type: Number }
       }
     },
-    
-
     amenities: [{ type: String }],
-    images: [{ type: String }], // Will store S3/Cloudinary URLs later
+    images: [{ type: String }], 
     isAvailable: { type: Boolean, default: true },
-   
     nextAvailableDate: {
       type: Date,
-      default: null // <-- Add this!
+      default: null 
     },
     bookedDates: [
       {
@@ -68,7 +72,14 @@ const propertySchema = new Schema<IPropertyDocument>(
         reservationId: { type: Schema.Types.ObjectId, ref: 'Reservation' }
       }
     ],
-    maxGuests: { type: Number, required: true, min: 1 },
+    // SURGICAL FIX 2: Only require for Shortlets
+    maxGuests: { 
+      type: Number, 
+      required: function(this: any) { 
+        return this.category === 'SHORTLET'; 
+      }, 
+      min: 1 
+    },
   },
   { timestamps: true }
 );

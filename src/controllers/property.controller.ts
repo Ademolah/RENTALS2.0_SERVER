@@ -41,6 +41,124 @@ export const createProperty = asyncHandler(async (req: Request, res: Response, n
   });
 });
 
+
+
+// CREATE HOTEL
+export const createHotel = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { 
+    title, description, street, city, state, 
+    amenities, hasBreakfast, startingPrice 
+  } = req.body;
+
+  let parsedRoomTypes = [];
+  if (req.body.roomTypes) {
+    try {
+      parsedRoomTypes = JSON.parse(req.body.roomTypes);
+    } catch (error) {
+      return next(new AppError('Invalid roomTypes format. Must be a valid JSON string.', 400));
+    }
+  }
+
+  let parsedAmenities = amenities;
+  if (typeof amenities === 'string') {
+    try {
+      parsedAmenities = JSON.parse(amenities);
+    } catch (e) {
+      parsedAmenities = amenities.split(',').map((a: string) => a.trim());
+    }
+  }
+
+  let uploadedImages: string[] = [];
+  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+    uploadedImages = await CloudinaryService.uploadMultipleImages(req.files);
+  }
+
+  if (!req.user?._id) {
+    return res.status(401).json({ message: "Unauthorized: No user found." });
+  }
+
+  const hotel = await Property.create({
+    ownerId: req.user?._id,
+    category: 'HOTEL',
+    title,
+    description,
+    address: { street, city, state },
+    amenities: parsedAmenities,
+    hasBreakfast: hasBreakfast === 'true' || hasBreakfast === true,
+    startingPrice: Number(startingPrice),
+    roomTypes: parsedRoomTypes,
+    images: uploadedImages,
+    isAvailable: true
+  });
+
+  res.status(201).json({
+    status: 'success',
+    data: { hotel }
+  });
+});
+
+// UPDATE HOTEL
+export const updateHotel = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const hotelId = req.params.id;
+  const updates = { ...req.body };
+
+  const hotel = await Property.findById(hotelId);
+  if (!hotel) return next(new AppError('Hotel not found', 404));
+
+  const isAdmin = req.user?.role === 'ADMIN';
+  const isLandlordOwner = req.user?.role === 'LANDLORD' && hotel.ownerId.toString() === req.user?._id?.toString();
+
+  if (!isAdmin && !isLandlordOwner) {
+    return next(new AppError('You do not have permission to edit this hotel.', 403));
+  }
+
+  if (updates.roomTypes) updates.roomTypes = JSON.parse(updates.roomTypes);
+  if (updates.amenities && typeof updates.amenities === 'string') {
+    try { updates.amenities = JSON.parse(updates.amenities); } 
+    catch(e) { updates.amenities = updates.amenities.split(',').map((a: string) => a.trim()); }
+  }
+  if (updates.address) updates.address = JSON.parse(updates.address);
+  if (updates.hasBreakfast) updates.hasBreakfast = updates.hasBreakfast === 'true';
+
+  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+    const newImages = await CloudinaryService.uploadMultipleImages(req.files);
+    let existingImages = updates.existingImages ? JSON.parse(updates.existingImages) : hotel.images;
+    updates.images = [...existingImages, ...newImages];
+  }
+
+  const updatedHotel = await Property.findByIdAndUpdate(hotelId, updates, { 
+    new: true, runValidators: true 
+  });
+
+  res.status(200).json({
+    status: 'success',
+    data: { hotel: updatedHotel }
+  });
+});
+
+// DELETE HOTEL
+export const deleteHotel = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const hotelId = req.params.id;
+  
+  const hotel = await Property.findById(hotelId);
+  if (!hotel) return next(new AppError('Hotel not found', 404));
+
+  const isAdmin = req.user?.role === 'ADMIN';
+  const isLandlordOwner = req.user?.role === 'LANDLORD' && hotel.ownerId.toString() === req.user?._id?.toString();
+
+  if (!isAdmin && !isLandlordOwner) {
+    return next(new AppError('You do not have permission to delete this hotel.', 403));
+  }
+
+  await Property.findByIdAndDelete(hotelId);
+
+  res.status(204).json({
+    status: 'success',
+    data: null
+  });
+});
+
+
 export const getProperties = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   // ✅ THE CRITICAL FIX: Destructure the properties array and the total count from the service object
   const { properties, total } = await PropertyService.getProperties(req.query);
@@ -238,5 +356,43 @@ export const checkHotelRoomAvailability = asyncHandler(async (req: Request, res:
         ? `Available! Only ${availableRoomsLeft} left at this price.` 
         : 'Sold out for these dates.'
     }
+  });
+});
+
+// GET ALL HOTELS
+
+export const getHotels = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  // Combine Express query parameters with our strict Hotel category condition
+  const queryObj = { ...req.query, category: 'HOTEL' };
+  
+  // 'as any' safely tells TypeScript to step aside for this MongoDB operation
+  const hotels = await Property.find(queryObj as any)
+    .sort('-createdAt')
+    .select('-__v');
+
+  res.status(200).json({
+    status: 'success',
+    results: hotels.length,
+    data: { hotels }
+  });
+});
+
+// GET SINGLE HOTEL BY ID
+export const getHotel = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const hotelId = req.params.id;
+
+  // Find by ID but guarantee it is actually a hotel
+  // The 'as any' bypasses the rigid exactOptionalPropertyTypes validation block
+  const hotel = await Property.findOne({ _id: hotelId, category: 'HOTEL' } as any)
+    .populate('ownerId', 'firstName lastName email phoneNumber')
+    .select('-__v');
+
+  if (!hotel) {
+    return next(new AppError('Hotel not found or it belongs to a different category', 404));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: { hotel }
   });
 });

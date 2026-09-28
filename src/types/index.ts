@@ -117,6 +117,8 @@ export interface IProperty {
   description: string;
   category: PropertyCategory;
   ownerId: Types.ObjectId; 
+  startingPrice?: number;
+  hasBreakfast?: boolean;
   roomTypes?: IRoomType[];
   pricePerNight: number;
   currency: string; 
