@@ -69,7 +69,8 @@ const propertySchema = new Schema<IPropertyDocument>(
       {
         startDate: { type: Date, required: true },
         endDate: { type: Date, required: true },
-        reservationId: { type: Schema.Types.ObjectId, ref: 'Reservation' }
+        reservationId: { type: Schema.Types.ObjectId, ref: 'Reservation' },
+        roomTypeId: { type: Schema.Types.ObjectId, required: false }
       }
     ],
     // SURGICAL FIX 2: Only require for Shortlets

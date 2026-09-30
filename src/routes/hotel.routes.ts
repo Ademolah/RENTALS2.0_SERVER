@@ -4,13 +4,16 @@ import {
   updateHotel, 
   deleteHotel, 
   checkHotelRoomAvailability,
-  getHotels,     // <-- 1. Import this
-  getHotel       // <-- 2. Import this
+  getHotels,     
+  getHotel , getLandlordHotelBookings, confirmHotelCheckIn
 } from '../controllers/property.controller.js';
 import { protect, restrictTo } from '../middlewares/auth.middleware.js';
 import { upload } from '../middlewares/upload.middleware.js';
 
 const router = Router();
+
+router.get('/landlord/bookings',protect, restrictTo('LANDLORD', 'ADMIN'), getLandlordHotelBookings);
+router.post('/bookings/:id/confirm-checkin',protect, restrictTo('LANDLORD', 'ADMIN'), confirmHotelCheckIn);
 
 // ==========================================
 // PUBLIC ROUTES (No login required to view)

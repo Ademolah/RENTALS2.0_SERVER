@@ -396,3 +396,59 @@ export const getHotel = asyncHandler(async (req: Request, res: Response, next: N
     data: { hotel }
   });
 });
+
+
+// Get hotel bookings for the logged-in landlord
+export const getLandlordHotelBookings = asyncHandler(async (req: Request, res: Response) => {
+  const landlordId = (req as any).user._id; 
+
+  // 1. Find all properties owned by this landlord that are category 'HOTEL'
+  const hotelProperties = await Property.find({ 
+    ownerId: landlordId, 
+    category: 'HOTEL' 
+  }).select('_id');
+  
+  const hotelPropertyIds = hotelProperties.map(p => p._id);
+
+  // 2. Find reservations tied to these hotels
+  const bookings = await Reservation.find({ 
+    propertyId: { $in: hotelPropertyIds } 
+  })
+    .populate('userId', 'firstName lastName phoneNumber')
+    .populate('propertyId', 'title address images')
+    .sort({ createdAt: -1 });
+
+  res.status(200).json({
+    status: 'success',
+    results: bookings.length,
+    data: { bookings }
+  });
+});
+
+// Landlord confirms guest check-in for a hotel room
+export const confirmHotelCheckIn = asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params; 
+  
+  const reservation = await Reservation.findById(id);
+  
+  if (!reservation) {
+    res.status(404);
+    throw new Error('Reservation not found');
+  }
+
+  // Update using the exact field from Reservation.ts
+  reservation.checkInConfirmedByLandlord = true;
+
+  // If guest also confirmed, release funds to the landlord using the schema enum
+  if (reservation.checkInConfirmedByGuest) {
+    reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
+  }
+
+  await reservation.save();
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Hotel check-in confirmed successfully',
+    data: { reservation }
+  });
+});

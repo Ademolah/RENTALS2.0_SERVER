@@ -8,18 +8,21 @@ import { Property } from '../models/Property.js';
 import { CarReservation } from '../models/CarReservation.js';
 import { Car } from '../models/Car.js';
 
-
 export const initiateBooking = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const { propertyId, checkInDate, checkOutDate, guestsCount, totalAmount } = req.body;
+  // Added bookingType and roomId to the incoming request payload
+  const { propertyId, roomId, checkInDate, checkOutDate, guestsCount, totalAmount, bookingType = 'PROPERTY' } = req.body;
   const user = req.user as any; 
 
+  // Push the new fields into Paystack's metadata so the webhook receives them
   const metadata = {
     custom_fields: [
       { display_name: "Property ID", variable_name: "propertyId", value: propertyId },
+      { display_name: "Room ID", variable_name: "roomId", value: roomId || "" },
       { display_name: "User ID", variable_name: "userId", value: user._id.toString() },
       { display_name: "Check In", variable_name: "checkInDate", value: checkInDate },
       { display_name: "Check Out", variable_name: "checkOutDate", value: checkOutDate },
-      { display_name: "Guests", variable_name: "guestsCount", value: guestsCount.toString() }
+      { display_name: "Guests", variable_name: "guestsCount", value: guestsCount.toString() },
+      { display_name: "Booking Type", variable_name: "bookingType", value: bookingType }
     ]
   };
 
@@ -82,7 +85,6 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
               paymentStatus: 'SUCCESS'
             });
 
-            // SURGICAL INSERTION: Push into bookedDates array instead of taking offline
             await Property.findByIdAndUpdate(metadata.propertyId, {
               $push: {
                 bookedDates: {
@@ -96,6 +98,37 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
             break;
           }
 
+          case 'HOTEL': {
+            // 1. Map metadata.roomId to the schema's roomTypeId field, cast as 'any'
+            const newHotelReservation: any = await Reservation.create({
+              userId: metadata.userId,
+              propertyId: metadata.propertyId,
+              roomTypeId: metadata.roomId, // Map the webhook's roomId to the DB's roomTypeId
+              checkInDate: new Date(metadata.checkInDate),
+              checkOutDate: new Date(metadata.checkOutDate),
+              guestsCount: Number(metadata.guestsCount),
+              totalAmount: txData.amount / 100, 
+              paystackReference: reference,
+              paymentStatus: 'SUCCESS',
+              escrowStatus: 'HELD'
+            } as any); // Force TypeScript to accept the payload
+
+            // 2. Lock the dates in the property collection using roomTypeId
+            await Property.findByIdAndUpdate(metadata.propertyId, {
+              $push: {
+                bookedDates: {
+                  startDate: new Date(metadata.checkInDate),
+                  endDate: new Date(metadata.checkOutDate),
+                  reservationId: newHotelReservation._id,
+                  roomTypeId: metadata.roomId 
+                } as any // Force TypeScript to accept the push payload
+              }
+            });
+            
+            console.log(`✅ [Webhook] Hotel Room Reservation secured & Escrow Held (Ref: ${reference})`);
+            break;
+          }
+
           case 'CAR': {
             const reservation = await CarReservation.findById(metadata.reservationId);
             
@@ -106,7 +139,6 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
               reservation.reservationStatus = 'ACTIVE'; 
               await reservation.save();
 
-              // SURGICAL INSERTION: Push into bookedDates array instead of taking offline
               await Car.findByIdAndUpdate(metadata.carId, {
                 $push: {
                   bookedDates: {
@@ -119,11 +151,6 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
               
               console.log(`✅ [Webhook] Car Reservation secured & Dates Locked (Ref: ${reference})`);
             }
-            break;
-          }
-
-          case 'HOTEL': {
-            console.log(`⏳ [Webhook] Hotel logic placeholder triggered (Ref: ${reference})`);
             break;
           }
 
