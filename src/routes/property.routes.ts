@@ -20,6 +20,6 @@ router.post('/:id/availability', checkPropertyAvailability);
 router.get('/landlord-bookings', protect, restrictTo('LANDLORD', 'ADMIN'), getLandlordBookings);
 
 router.get('/:id', getProperty);
-router.patch('/:id', protect, restrictTo('ADMIN', 'LANDLORD'), updateProperty);
+router.patch('/:id', protect, restrictTo('ADMIN', 'LANDLORD'),upload.array('images', 10), updateProperty);
 
 export default router;

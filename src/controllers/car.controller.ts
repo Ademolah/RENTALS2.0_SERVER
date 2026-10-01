@@ -315,7 +315,6 @@ export const getLandlordCars = asyncHandler(async (req: Request, res: Response, 
 });
 
 
-// --- UPDATE CAR DETAILS (Pricing, Status, etc.) ---
 export const updateCar = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const userId = req.user?._id?.toString();
 
@@ -323,13 +322,27 @@ export const updateCar = asyncHandler(async (req: Request, res: Response, next: 
     return next(new AppError('You must be logged in to perform this action.', 401));
   }
   
+  let updateData = { ...req.body };
+
+  // 1. Handle new image uploads via Cloudinary if files exist
+  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+    // Assuming you have your Cloudinary service imported
+    const newUploadedImages = await CloudinaryService.uploadMultipleImages(req.files);
+    
+    // Merge new images with any existing images the frontend sent back
+    let keptImages = [];
+    if (updateData.existingImages) {
+      keptImages = Array.isArray(updateData.existingImages) 
+        ? updateData.existingImages 
+        : JSON.parse(updateData.existingImages); // parse if stringified
+    }
+    updateData.images = [...keptImages, ...newUploadedImages];
+  }
+
+  // 2. Execute the update
   const car = await Car.findOneAndUpdate(
-    // Force TypeScript to treat this as a standard query object
-    { 
-      _id: req.params.id, 
-      ownerId: userId 
-    } as any, 
-    req.body, 
+    { _id: req.params.id, ownerId: userId } as any, 
+    updateData, 
     { new: true, runValidators: true }
   );
 

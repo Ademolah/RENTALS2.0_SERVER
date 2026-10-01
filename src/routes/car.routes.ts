@@ -42,6 +42,6 @@ router.get('/landlord/bookings', restrictTo('LANDLORD', 'ADMIN'), getLandlordCar
 
 // Dynamic & Action routes
 router.post('/', restrictTo("ADMIN", "LANDLORD"), upload.array('images', 5), createCar);
-router.patch('/:id', restrictTo('LANDLORD', 'ADMIN'), updateCar);
+router.patch('/:id', restrictTo('LANDLORD', 'ADMIN'),upload.array('images', 5), updateCar);
 
 export default router;

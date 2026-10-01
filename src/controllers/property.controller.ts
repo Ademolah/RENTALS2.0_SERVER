@@ -246,24 +246,41 @@ export const checkPropertyAvailability = asyncHandler(async (req: Request, res: 
 });
 
 
-// --- UPDATE PROPERTY CONTROLLER ---
 export const updateProperty = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // Pass the ID from the URL params, and the update payload from the request body
-  const property = await PropertyService.updateProperty(req.params.id as string, req.body);
+  let updateData = { ...req.body };
+
+  // Parse nested objects that were stringified for FormData
+  if (updateData.address && typeof updateData.address === 'string') {
+    updateData.address = JSON.parse(updateData.address);
+  }
+  if (updateData.capacity && typeof updateData.capacity === 'string') {
+    updateData.capacity = JSON.parse(updateData.capacity);
+  }
+
+  // Handle new image uploads via Cloudinary
+  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+    // Ensure you have CloudinaryService imported in this file
+    const newUploadedImages = await CloudinaryService.uploadMultipleImages(req.files);
+    
+    let keptImages = [];
+    if (updateData.existingImages) {
+      keptImages = Array.isArray(updateData.existingImages) 
+        ? updateData.existingImages 
+        : JSON.parse(updateData.existingImages);
+    }
+    updateData.images = [...keptImages, ...newUploadedImages];
+  }
+
+  // Pass the updated payload to your service layer
+  const property = await PropertyService.updateProperty(req.params.id as string, updateData);
 
   if (!property) {
-    res.status(404).json({
-      status: 'fail',
-      message: 'No property found with that ID'
-    });
-    return;
+    return next(new AppError('No property found with that ID', 404));
   }
 
   res.status(200).json({
     status: 'success',
-    data: { 
-      property 
-    }
+    data: { property }
   });
 });
 
