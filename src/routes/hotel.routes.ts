@@ -5,7 +5,7 @@ import {
   deleteHotel, 
   checkHotelRoomAvailability,
   getHotels,     
-  getHotel , getLandlordHotelBookings, confirmHotelCheckIn
+  getHotel , getLandlordHotelBookings, confirmHotelCheckIn, getLandlordHotels
 } from '../controllers/property.controller.js';
 import { protect, restrictTo } from '../middlewares/auth.middleware.js';
 import { upload } from '../middlewares/upload.middleware.js';
@@ -14,6 +14,9 @@ const router = Router();
 
 router.get('/landlord/bookings',protect, restrictTo('LANDLORD', 'ADMIN'), getLandlordHotelBookings);
 router.post('/bookings/:id/confirm-checkin',protect, restrictTo('LANDLORD', 'ADMIN'), confirmHotelCheckIn);
+
+// Add this line in your protected landlord routes section
+router.get('/landlord/portfolio', protect, restrictTo('LANDLORD', 'ADMIN'), getLandlordHotels);
 
 // ==========================================
 // PUBLIC ROUTES (No login required to view)

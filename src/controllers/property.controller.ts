@@ -452,3 +452,19 @@ export const confirmHotelCheckIn = asyncHandler(async (req: Request, res: Respon
     data: { reservation }
   });
 });
+
+// Get all raw hotel properties for a specific landlord
+export const getLandlordHotels = asyncHandler(async (req: Request, res: Response) => {
+  const landlordId = (req as any).user._id;
+
+  const hotels = await Property.find({ 
+    ownerId: landlordId, 
+    category: 'HOTEL' 
+  }).sort({ createdAt: -1 });
+
+  res.status(200).json({
+    status: 'success',
+    results: hotels.length,
+    data: { hotels }
+  });
+});
