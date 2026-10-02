@@ -485,3 +485,74 @@ export const getLandlordHotels = asyncHandler(async (req: Request, res: Response
     data: { hotels }
   });
 });
+
+// --- GUEST: Fetch their hotel bookings ---
+export const getGuestHotelBookings = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.user?._id;
+
+  // 1. Guard clause to handle undefined/unauthenticated users
+  if (!userId) {
+    res.status(401).json({
+      status: 'fail',
+      message: 'Unauthorized access'
+    });
+    return;
+  }
+
+  // 2. TypeScript is now happy because userId is strictly guaranteed to exist
+  const bookings = await Reservation.find({
+    userId: userId, 
+    type: 'HOTEL' 
+  })
+  .populate('propertyId')
+  .sort('-createdAt');
+
+  res.status(200).json({
+    status: 'success',
+    data: { bookings }
+  });
+});
+
+
+// --- GUEST: Confirm Hotel Check-in ---
+export const guestConfirmHotelCheckIn = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { id } = req.params;
+  const userId = req.user?._id;
+
+  // 1. Guard check for missing user context
+  if (!userId) {
+    return next(new AppError('Unauthorized access', 401));
+  }
+
+  // 2. Guard check to ensure id is a valid single string
+  if (!id || typeof id !== 'string') {
+    return next(new AppError('Invalid reservation ID format', 400));
+  }
+  
+  // TypeScript is now 100% sure both variables are defined and compatible
+  const reservation = await Reservation.findOne({ 
+    _id: id, 
+    userId: userId 
+  });
+  
+  if (!reservation) {
+    return next(new AppError('Reservation not found or you do not have permission', 404));
+  }
+
+  // Guest confirms they have arrived
+  reservation.checkInConfirmedByGuest = true;
+
+  // If landlord already confirmed, trigger the escrow release
+  if (reservation.checkInConfirmedByLandlord) {
+    reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
+  }
+
+  await reservation.save();
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Check-in confirmed successfully.',
+    data: { reservation }
+  });
+});
+

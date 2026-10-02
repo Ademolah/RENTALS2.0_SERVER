@@ -1,4 +1,5 @@
-import { Schema, model, Document, Types } from 'mongoose';
+import { Schema, Document, Types } from 'mongoose';
+import mongoose from 'mongoose';
 
 // --- ENUMS & LITERALS ---
 export type UserRole = 'USER' | 'LANDLORD' | 'ADMIN'; 
@@ -103,6 +104,7 @@ export interface IUser {
   email: string;
   passwordHash: string;
   firstName: string;
+  favoriteProperties: mongoose.Types.ObjectId[];
   lastName: string;
   role: UserRole;
   bankDetails: IBankDetails;

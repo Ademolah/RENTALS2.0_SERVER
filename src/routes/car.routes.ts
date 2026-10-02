@@ -10,18 +10,22 @@ import { upload } from '../middlewares/upload.middleware.js';
 const router = Router();
 
 // ==========================================
+// 🟡 STATIC PROTECTED ROUTES (Must go BEFORE /:id)
+// ==========================================
+// We apply 'protect' inline here so it doesn't get caught by the /:id trap below!
+router.get('/my-bookings', protect, getMyCarBookings);
+
+// ==========================================
 // 🟢 PUBLIC ROUTES (No Token Required)
 // ==========================================
 router.get('/', listCars);
 router.get('/all', listAllCars);
-
-// 💡 MOVED THIS UP: Anyone can view a car's details
 router.get('/:id', getCarById);
 router.post('/:id/availability', checkCarAvailability);
 
 
 // ==========================================
-// 🔴 PROTECTED ROUTES BARRICADE
+// 🔒 PROTECTED ROUTES BARRICADE
 // ==========================================
 router.use(protect);
 
@@ -29,12 +33,12 @@ router.use(protect);
 // ==========================================
 // 🟡 AUTHENTICATED ROUTES (Requires Token)
 // ==========================================
-router.get('/my-bookings', getMyCarBookings);
+// (Removed /my-bookings from here since it was moved up)
 router.post('/book', initiateCarBooking);
 router.patch('/reservations/:reservationId/handover', confirmCarHandover);
 
 // ==========================================
-// 🟠 LANDLORD & ADMIN ROUTES
+// 👑 LANDLORD & ADMIN ROUTES
 // ==========================================
 // Add these STATIC routes ABOVE your dynamic routes!
 router.get('/landlord/fleet', restrictTo('LANDLORD', 'ADMIN'), getLandlordCars);

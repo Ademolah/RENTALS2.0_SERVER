@@ -5,7 +5,7 @@ import {
   deleteHotel, 
   checkHotelRoomAvailability,
   getHotels,     
-  getHotel , getLandlordHotelBookings, confirmHotelCheckIn, getLandlordHotels
+  getHotel , getLandlordHotelBookings, confirmHotelCheckIn, getLandlordHotels, getGuestHotelBookings, guestConfirmHotelCheckIn
 } from '../controllers/property.controller.js';
 import { protect, restrictTo } from '../middlewares/auth.middleware.js';
 import { upload } from '../middlewares/upload.middleware.js';
@@ -27,9 +27,13 @@ router.get('/:id', getHotel);
 // ==========================================
 // PROTECTED ROUTES (Landlords & Admins only)
 // ==========================================
+router.get('/guest/bookings', protect,  getGuestHotelBookings);
 router.post('/', protect, restrictTo('LANDLORD', 'ADMIN'), upload.array('images', 15), createHotel);
 router.patch('/:id', protect, restrictTo('LANDLORD', 'ADMIN'), upload.array('images', 15), updateHotel);
 router.delete('/:id', protect, restrictTo('LANDLORD', 'ADMIN'), deleteHotel);
+
+
+router.patch('/guest/bookings/:id/confirm', protect, guestConfirmHotelCheckIn);
 
 // Availability check for a specific room type
 router.get('/:hotelId/rooms/:roomTypeId/availability', checkHotelRoomAvailability);

@@ -1,5 +1,6 @@
 import { Schema, model } from 'mongoose';
 import { IUserDocument } from '../types/index.js';
+import mongoose from 'mongoose';
 
 const userSchema = new Schema<IUserDocument>(
   {
@@ -9,6 +10,10 @@ const userSchema = new Schema<IUserDocument>(
     lastName: { type: String, required: true, trim: true },
     role: { type: String, enum: ['USER', 'LANDLORD', 'ADMIN'], default: 'USER' },
     phoneNumber: { type: String, trim: true },
+    favoriteProperties: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Property'
+  }],
     // Add this inside your UserSchema definition
     bankDetails: {
       accountName: {

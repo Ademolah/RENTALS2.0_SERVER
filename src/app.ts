@@ -9,6 +9,7 @@ import payoutRoutes from './routes/payout.routes.js'
 import reservationRoutes from './routes/reservation.routes.js';
 import { globalErrorHandler } from './middlewares/errorHandler';
 import hotelRoutes from './routes/hotel.routes.js'
+import userRoutes from './routes/user.routes.js'
 
 const app: Application = express();
 
@@ -21,6 +22,7 @@ app.use(morgan('dev')); // HTTP request logger
 
 
 app.use("/api/v1/auth", authRoutes)
+app.use("/api/v1/users", userRoutes)
 app.use("/api/v1/properties", propertyRoutes)
 app.use('/api/v1/hotels', hotelRoutes);
 app.use("/api/v1/cars", carRoutes)
