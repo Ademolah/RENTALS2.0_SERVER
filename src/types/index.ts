@@ -120,6 +120,9 @@ export interface IProperty {
   category: PropertyCategory;
   ownerId: Types.ObjectId; 
   startingPrice?: number;
+  propertyId: string;
+  bedrooms?: number;
+  bathrooms?: number;
   hasBreakfast?: boolean;
   roomTypes?: IRoomType[];
   pricePerNight: number;

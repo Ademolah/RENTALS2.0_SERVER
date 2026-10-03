@@ -16,6 +16,9 @@ const roomTypeSchema = new Schema<IRoomType>({
 
 const propertySchema = new Schema<IPropertyDocument>(
   {
+    // Auto-generated 5-digit ID
+    propertyId: { type: String, unique: true },
+    
     title: { type: String, required: true, trim: true },
     description: { type: String, required: true },
     category: { 
@@ -39,7 +42,6 @@ const propertySchema = new Schema<IPropertyDocument>(
     },
     ownerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     
-    // SURGICAL FIX 1: Only require for Shortlets and VIPs
     pricePerNight: { 
       type: Number, 
       required: function(this: any) { 
@@ -73,7 +75,6 @@ const propertySchema = new Schema<IPropertyDocument>(
         roomTypeId: { type: Schema.Types.ObjectId, required: false }
       }
     ],
-    // SURGICAL FIX 2: Only require for Shortlets
     maxGuests: { 
       type: Number, 
       required: function(this: any) { 
@@ -81,11 +82,36 @@ const propertySchema = new Schema<IPropertyDocument>(
       }, 
       min: 1 
     },
+    
+    // SURGICAL FIX: Bedrooms and Bathrooms for Shortlets
+    bedrooms: {
+      type: Number,
+      required: function(this: any) {
+        return this.category === 'SHORTLET';
+      },
+      min: 1
+    },
+    bathrooms: {
+      type: Number,
+      required: function(this: any) {
+        return this.category === 'SHORTLET';
+      },
+      min: 1
+    }
   },
   { timestamps: true }
 );
 
+// Pre-save middleware to automatically generate a 5-digit propertyId
+propertySchema.pre('save', async function () {
+  if (!this.propertyId) {
+    // Generates a random number between 10000 and 99999
+    this.propertyId = Math.floor(10000 + Math.random() * 90000).toString();
+  }
+});
+
 // Performance Indexes for search queries
+propertySchema.index({ propertyId: 1 });
 propertySchema.index({ 'address.city': 1, 'address.state': 1 });
 propertySchema.index({ category: 1, isAvailable: 1 });
 propertySchema.index({ pricePerNight: 1 });
