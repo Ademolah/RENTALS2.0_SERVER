@@ -82,6 +82,19 @@ const propertySchema = new Schema<IPropertyDocument>(
       }, 
       min: 1 
     },
+
+    establishmentType: {
+      type: String,
+      enum: ['LOUNGE', 'CLUB', 'FINE_DINING', 'BEACH_CLUB', 'PRIVATE_YACHT', 'OTHER'],
+      required: function(this: any) { return this.category === 'VIP RESERVATION'; }
+    },
+    services: [{ type: String }],
+    dressCode: { type: String },
+    openHours: {
+      open: { type: String },
+      close: { type: String },
+      daysOpen: [{ type: String }]
+    },
     
     // SURGICAL FIX: Bedrooms and Bathrooms for Shortlets
     bedrooms: {
@@ -111,7 +124,6 @@ propertySchema.pre('save', async function () {
 });
 
 // Performance Indexes for search queries
-propertySchema.index({ propertyId: 1 });
 propertySchema.index({ 'address.city': 1, 'address.state': 1 });
 propertySchema.index({ category: 1, isAvailable: 1 });
 propertySchema.index({ pricePerNight: 1 });

@@ -9,8 +9,20 @@ const reservationSchema = new Schema<IReservationDocument>(
     roomTypeId: { type: Schema.Types.ObjectId }, 
     
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    
+    // SURGICAL FIX: Added category for dashboard filtering, defaults to SHORTLET so older code doesn't break
+    category: {
+      type: String,
+      enum: ['SHORTLET', 'HOTEL', 'VIP_RESERVATION'],
+      default: 'SHORTLET'
+    },
+
     checkInDate: { type: Date, required: true },
     checkOutDate: { type: Date, required: true },
+    
+    // SURGICAL FIX: VIP Arrival Time
+    expectedArrivalTime: { type: String },
+
     totalAmount: { type: Number, required: true, min: 0 },
     paymentStatus: { 
       type: String, 
@@ -19,7 +31,8 @@ const reservationSchema = new Schema<IReservationDocument>(
     },
     reservationStatus: { 
       type: String, 
-      enum: ['ACTIVE', 'COMPLETED', 'CANCELLED'], 
+      // SURGICAL FIX: Added PENDING, but kept default as ACTIVE so older shortlet flows don't break
+      enum: ['PENDING', 'ACTIVE', 'COMPLETED', 'CANCELLED'], 
       default: 'ACTIVE' 
     },
     checkInConfirmedByGuest: { type: Boolean, default: false },

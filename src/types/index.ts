@@ -5,7 +5,8 @@ import mongoose from 'mongoose';
 export type UserRole = 'USER' | 'LANDLORD' | 'ADMIN'; 
 export type PropertyCategory = 'CAR RENTAL' | 'SHORTLET' | 'VIP RESERVATION' | 'HOTEL';
 export type PaymentStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'REFUNDED';
-export type ReservationStatus = 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+// SURGICAL FIX: Added 'PENDING' without removing existing statuses
+export type ReservationStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
 
 // --- DOMAIN INTERFACES ---
 
@@ -13,8 +14,6 @@ export type PayoutStatus = 'HELD_IN_ESCROW' | 'RELEASED_TO_LANDLORD' | 'DIRECT_T
 
 export type CarCategory = 'LUXURY' | 'SUV' | 'SEDAN' | 'CHAUFFEUR_DRIVEN' | 'VAN';
 export type Transmission = 'AUTOMATIC' | 'MANUAL';
-
-
 
 // 1. Define the Room Type Interface
 export interface IRoomType {
@@ -120,6 +119,15 @@ export interface IProperty {
   category: PropertyCategory;
   ownerId: Types.ObjectId; 
   startingPrice?: number;
+  establishmentType?: 'LOUNGE' | 'CLUB' | 'FINE_DINING' | 'BEACH_CLUB' | 'PRIVATE_YACHT' | 'OTHER';
+  depositAmount?: number;
+  openHours?: {
+    open: string;
+    close: string;
+    daysOpen: string[];
+  };
+  services?: string[];
+  dressCode?: string;
   propertyId: string;
   bedrooms?: number;
   bathrooms?: number;
@@ -151,6 +159,11 @@ export interface IProperty {
 export interface IReservation {
   propertyId: Types.ObjectId; 
   userId: Types.ObjectId;     
+  
+  // SURGICAL FIX: Optional VIP/Dashboard Fields
+  category?: 'SHORTLET' | 'HOTEL' | 'VIP_RESERVATION';
+  expectedArrivalTime?: string;
+
   checkInDate: Date;
   checkOutDate: Date;
   roomTypeId?: Types.ObjectId;
