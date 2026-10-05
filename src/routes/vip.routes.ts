@@ -1,24 +1,22 @@
 import express from 'express';
 import { 
+  confirmVipArrival,
   createVipEstablishment, 
+  getLandlordVipEstablishments, 
+  getVipEstablishmentById, 
   getVipEstablishments, 
-  initiateVipReservation 
+  initiateVipReservation, 
+  updateVipEstablishment
 } from '../controllers/vip.controller.js';
 import { protect, restrictTo } from '../middlewares/auth.middleware.js';
 import { upload } from '../middlewares/upload.middleware.js'; // Adjust path based on your multer config
 
 const router = express.Router();
 
-// ==========================================
-// PUBLIC ROUTES
-// ==========================================
-// GET /api/vip - Fetch all VIP establishments for the guest dashboard
+
 router.get('/', getVipEstablishments);
 
-// ==========================================
-// PROTECTED ROUTES (HOSTS & ADMINS)
-// ==========================================
-// POST /api/vip - Create a new VIP establishment
+
 router.post(
   '/', 
   protect, 
@@ -27,14 +25,31 @@ router.post(
   createVipEstablishment
 );
 
-// ==========================================
-// PROTECTED ROUTES (GUESTS)
-// ==========================================
-// POST /api/vip/reserve - Initiate the deposit escrow and Paystack checkout
+router.get('/landlord', protect, restrictTo('LANDLORD', 'ADMIN'), getLandlordVipEstablishments);
+
 router.post(
   '/reserve', 
   protect, 
   initiateVipReservation
+);
+
+// Escrow Confirmation Route (Host marks guest as arrived)
+router.post(
+  '/confirm-arrival/:id', 
+  protect, 
+  restrictTo('LANDLORD', 'ADMIN'), 
+  confirmVipArrival
+);
+
+// Guest Routes
+router.post('/reserve', protect,  initiateVipReservation);
+router.get('/:id', getVipEstablishmentById);
+router.put(
+  '/:id', 
+  protect, 
+  restrictTo('LANDLORD', 'ADMIN'), 
+  upload.array('images', 10), 
+  updateVipEstablishment
 );
 
 export default router;

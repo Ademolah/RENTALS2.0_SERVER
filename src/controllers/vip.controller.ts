@@ -5,6 +5,7 @@ import { Property } from '../models/Property.js';
 import { Reservation } from '../models/Reservation.js';
 import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
+import { Types } from 'mongoose';
 
 // ==========================================
 // 1. CREATE VIP ESTABLISHMENT
@@ -133,6 +134,8 @@ export const initiateVipReservation = asyncHandler(async (req: Request, res: Res
     reservationStatus: 'PENDING' 
   });
 
+  
+
   // Mock Paystack URL initialization
   const paystackData = { authorization_url: 'https://checkout.paystack.com/mock-url' };
 
@@ -153,5 +156,150 @@ export const initiateVipReservation = asyncHandler(async (req: Request, res: Res
       checkoutUrl: paystackData.authorization_url,
       reservationId: reservation._id
     }
+  });
+});
+
+
+// --- Add these inside vip.controller.ts ---
+
+// ==========================================
+// 4. GET LANDLORD'S VIP ESTABLISHMENTS
+// ==========================================
+export const getLandlordVipEstablishments = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const landlordId = req.user?._id;
+
+  if (!landlordId) {
+    return next(new AppError('Authentication context missing.', 401));
+  }
+
+  const establishments = await Property.find({ 
+    ownerId: landlordId, 
+    category: 'VIP RESERVATION' 
+  }).sort('-createdAt');
+
+  res.status(200).json({
+    status: 'success',
+    results: establishments.length,
+    data: { establishments }
+  });
+});
+
+// ==========================================
+// 5. GET SINGLE VIP ESTABLISHMENT (For Editing)
+// ==========================================
+export const getVipEstablishmentById = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { id } = req.params;
+
+  // 1. Ensure 'id' is a single string and a valid ObjectId
+  if (typeof id !== 'string' || !Types.ObjectId.isValid(id)) {
+    return next(new AppError('Invalid or missing ID format', 400));
+  }
+
+  // 2. TypeScript now knows 'id' is definitely a string
+  const establishment = await Property.findOne({ 
+    _id: new Types.ObjectId(id), 
+    category: 'VIP RESERVATION' 
+  });
+
+  if (!establishment) {
+    return next(new AppError('VIP Establishment not found', 404));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: { establishment }
+  });
+});
+
+
+// ==========================================
+// 6. UPDATE VIP ESTABLISHMENT
+// ==========================================
+export const updateVipEstablishment = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { id } = req.params;
+  const updateData = { ...req.body };
+
+  const establishment = await Property.findById(id);
+  
+  if (!establishment || establishment.category !== 'VIP RESERVATION') {
+    return next(new AppError('Establishment not found', 404));
+  }
+
+  // Ensure only the owner or an admin can edit
+  const isOwner = establishment.ownerId.toString() === req.user?._id?.toString();
+  const isAdmin = req.user?.role === 'ADMIN';
+
+  if (!isOwner && !isAdmin) {
+    return next(new AppError('You do not have permission to edit this listing.', 403));
+  }
+
+  // Handle parsed JSON fields from FormData
+  if (updateData.daysOpen && typeof updateData.daysOpen === 'string') {
+    try { updateData.daysOpen = JSON.parse(updateData.daysOpen); } catch(e) {}
+  }
+  if (updateData.services && typeof updateData.services === 'string') {
+    try { updateData.services = JSON.parse(updateData.services); } catch(e) {}
+  }
+
+  // Map deposit amount to Mongoose's required pricePerNight field
+  if (updateData.depositAmount) {
+    updateData.depositAmount = Number(updateData.depositAmount);
+    updateData.pricePerNight = updateData.depositAmount;
+  }
+
+  // Map open hours
+  if (updateData.open || updateData.close || updateData.daysOpen) {
+    updateData.openHours = {
+      open: updateData.open || establishment.openHours?.open,
+      close: updateData.close || establishment.openHours?.close,
+      daysOpen: updateData.daysOpen || establishment.openHours?.daysOpen
+    };
+  }
+
+  // Handle Cloudinary Image Updates
+  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+    const newImages = await CloudinaryService.uploadMultipleImages(req.files);
+    let existingImages = updateData.existingImages ? JSON.parse(updateData.existingImages) : establishment.images;
+    updateData.images = [...existingImages, ...newImages];
+  } else if (updateData.existingImages) {
+    updateData.images = JSON.parse(updateData.existingImages);
+  }
+
+  const updatedEstablishment = await Property.findByIdAndUpdate(id, updateData, { 
+    new: true, runValidators: true 
+  });
+
+  res.status(200).json({
+    status: 'success',
+    data: { establishment: updatedEstablishment }
+  });
+});
+
+// ==========================================
+// 7. LANDLORD CONFIRMS GUEST ARRIVAL
+// ==========================================
+export const confirmVipArrival = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { id } = req.params; 
+  
+  const reservation = await Reservation.findById(id);
+  
+  if (!reservation) {
+    return next(new AppError('Reservation not found', 404));
+  }
+
+  // Set the exact landlord flag from the schema
+  reservation.checkInConfirmedByLandlord = true;
+
+  // Escrow handshake trigger: If guest already confirmed, release funds
+  if (reservation.checkInConfirmedByGuest) {
+    reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
+  }
+
+  await reservation.save();
+
+  res.status(200).json({
+    status: 'success',
+    message: 'VIP Arrival confirmed successfully',
+    data: { reservation }
   });
 });
