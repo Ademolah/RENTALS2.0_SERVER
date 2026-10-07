@@ -7,7 +7,7 @@ import * as dotenv from 'dotenv'
 dotenv.config()
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-const ADMIN_EMAIL = 'concierge@rentals.com'; // Hardcoded admin email
+const ADMIN_EMAIL = 'rentalsafrica@gmail.com'; // Hardcoded admin email
 
 interface NotificationPayload {
   guestEmail: string;
@@ -44,9 +44,9 @@ export class EmailService {
 
       // Batch send to avoid blocking (Fire and Forget)
       await Promise.all([
-        resend.emails.send({ from: 'Rentals <noreply@rentals.com>', to: data.guestEmail, subject: `Reservation Confirmed: ${data.assetTitle}`, html: guestHtml }),
-        resend.emails.send({ from: 'Rentals <noreply@rentals.com>', to: data.hostEmail, subject: `Action Required: New Booking for ${data.assetTitle}`, html: hostHtml }),
-        resend.emails.send({ from: 'Rentals <noreply@rentals.com>', to: ADMIN_EMAIL, subject: `Platform Ledger: New ${data.bookingType} Booking`, html: adminHtml })
+        resend.emails.send({ from: 'Rentals <noreply@rentalsafrica.com>', to: data.guestEmail, subject: `Reservation Confirmed: ${data.assetTitle}`, html: guestHtml }),
+        resend.emails.send({ from: 'Rentals <noreply@rentalsafrica.com>', to: data.hostEmail, subject: `Action Required: New Booking for ${data.assetTitle}`, html: hostHtml }),
+        resend.emails.send({ from: 'Rentals <noreply@rentalsafrica.com>', to: ADMIN_EMAIL, subject: `Platform Ledger: New ${data.bookingType} Booking`, html: adminHtml })
       ]);
 
       console.log(`[Email Service] Booking Success emails broadcasted for ${data.assetTitle}`);
@@ -73,9 +73,9 @@ export class EmailService {
       );
 
       await Promise.all([
-        resend.emails.send({ from: 'Rentals <noreply@rentals.com>', to: data.guestEmail, subject: `Escrow Released: ${data.assetTitle}`, html: guestHtml }),
-        resend.emails.send({ from: 'Rentals <noreply@rentals.com>', to: data.hostEmail, subject: `Payout Authorized: ₦${data.amount.toLocaleString()}`, html: hostHtml }),
-        resend.emails.send({ from: 'Rentals <noreply@rentals.com>', to: ADMIN_EMAIL, subject: `Escrow Cleared: ${data.assetTitle}`, html: adminHtml })
+        resend.emails.send({ from: 'Rentals <noreply@rentalsafrica.com>', to: data.guestEmail, subject: `Escrow Released: ${data.assetTitle}`, html: guestHtml }),
+        resend.emails.send({ from: 'Rentals <noreply@rentalsafrica.com>', to: data.hostEmail, subject: `Payout Authorized: ₦${data.amount.toLocaleString()}`, html: hostHtml }),
+        resend.emails.send({ from: 'Rentals <noreply@rentalsafrica.com>', to: ADMIN_EMAIL, subject: `Escrow Cleared: ${data.assetTitle}`, html: adminHtml })
       ]);
 
       console.log(`[Email Service] Escrow Release emails broadcasted for ${data.assetTitle}`);

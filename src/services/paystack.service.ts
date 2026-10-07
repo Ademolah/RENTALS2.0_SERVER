@@ -164,21 +164,30 @@ static async initiateTransfer(amountInNaira: number, recipientCode: string, refe
 }
 
   // 4. Initialize Transaction
+  // 4. Initialize Transaction
   static async initializeTransaction(
     email: string, 
     amountInNaira: number, 
     metadata: any,
-    reference?: string 
+    reference?: string | null,
+    callbackUrl?: string | null
   ) {
     try {
       const amountInKobo = amountInNaira * 100;
-      const payload = {
+      
+      const payload: any = {
         email,
         amount: amountInKobo,
-        reference, 
-        callback_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}`, 
+        // If a specific callbackUrl is passed (like /vip-success), use it. 
+        // Otherwise, fallback to the default frontend URL.
+        callback_url: callbackUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}`, 
         metadata 
       };
+
+      // Only attach reference if one was explicitly provided
+      if (reference) {
+        payload.reference = reference;
+      }
 
       const response = await axios.post(`${this.baseURL}/transaction/initialize`, payload, {
         headers: this.headers,

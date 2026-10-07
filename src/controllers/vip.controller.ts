@@ -97,15 +97,11 @@ export const getVipEstablishments = asyncHandler(async (req: Request, res: Respo
   });
 });
 
-// ==========================================
-// 3. INITIATE VIP RESERVATION & DEPOSIT ESCROW
-// ==========================================
-// Replace your existing initiateVipReservation in vip.controller.ts
-
 
 
 export const initiateVipReservation = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const { establishmentId, reservationDate, guestCount, arrivalTime } = req.body;
+  // Extract callbackUrl along with the other payload data
+  const { establishmentId, reservationDate, guestCount, arrivalTime, callbackUrl } = req.body;
   const user = req.user as any;
 
   if (!establishmentId || !reservationDate || !arrivalTime) {
@@ -128,17 +124,20 @@ export const initiateVipReservation = asyncHandler(async (req: Request, res: Res
     custom_fields: [
       { display_name: "Property ID", variable_name: "propertyId", value: establishmentId },
       { display_name: "User ID", variable_name: "userId", value: user._id.toString() },
-      { display_name: "Check In", variable_name: "checkInDate", value: reservationDate }, // Using checkInDate to match schema
+      { display_name: "Check In", variable_name: "checkInDate", value: reservationDate }, 
       { display_name: "Arrival Time", variable_name: "arrivalTime", value: arrivalTime }, 
       { display_name: "Guests", variable_name: "guestsCount", value: guestCount.toString() },
-      { display_name: "Booking Type", variable_name: "bookingType", value: "VIP" } // Critical hook for Webhook
+      { display_name: "Booking Type", variable_name: "bookingType", value: "VIP" }
     ]
   };
 
+  // Pass callbackUrl to Paystack (null skips the custom reference so Paystack auto-generates one)
   const paystackData = await PaystackService.initializeTransaction(
     user.email,
     totalAmount,
-    metadata
+    metadata,
+    null,
+    callbackUrl
   );
 
   res.status(200).json({
