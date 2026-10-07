@@ -6,6 +6,7 @@ import { Reservation } from '../models/Reservation.js';
 import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
 import { Types } from 'mongoose';
+import {PaystackService} from '../services/paystack.service.js'
 
 // ==========================================
 // 1. CREATE VIP ESTABLISHMENT
@@ -99,62 +100,52 @@ export const getVipEstablishments = asyncHandler(async (req: Request, res: Respo
 // ==========================================
 // 3. INITIATE VIP RESERVATION & DEPOSIT ESCROW
 // ==========================================
+// Replace your existing initiateVipReservation in vip.controller.ts
+
+
+
 export const initiateVipReservation = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { establishmentId, reservationDate, guestCount, arrivalTime } = req.body;
-  const currentUserId = req.user?._id;
+  const user = req.user as any;
 
-  if (!currentUserId) {
-    return next(new AppError('Authentication context missing.', 401));
+  if (!establishmentId || !reservationDate || !arrivalTime) {
+    return next(new AppError('Establishment ID, reservation date, and arrival time are required.', 400));
   }
 
-  const establishment = await Property.findById(establishmentId);
-  if (!establishment || establishment.category !== 'VIP RESERVATION') {
-    return next(new AppError('Establishment not found or is not a VIP venue.', 404));
-  }
-
-  const guest = await User.findById(currentUserId);
-  const host = await User.findById(establishment.ownerId);
-
-  if (!guest || !host) {
-    return next(new AppError('User account records not found.', 404));
-  }
-
-  const deposit = establishment.depositAmount || 0;
-  const platformFee = Math.round(deposit * 0.05);
-  const grandTotal = deposit + platformFee;
-
-  // Swapped 'status' for 'reservationStatus'
-  const reservation = await Reservation.create({
-    propertyId: establishment._id,
-    userId: currentUserId,
-    checkInDate: reservationDate, 
-    checkOutDate: reservationDate, 
-    guestsCount: guestCount,
-    totalAmount: grandTotal,
-    reservationStatus: 'PENDING' 
-  });
-
+  const establishment = await Property.findOne({ _id: establishmentId, category: 'VIP RESERVATION' });
   
+  if (!establishment) {
+    return next(new AppError('VIP Establishment not found', 404));
+  }
 
-  // Mock Paystack URL initialization
-  const paystackData = { authorization_url: 'https://checkout.paystack.com/mock-url' };
+  // Calculate Escrow Total (Deposit + 5% Platform Fee)
+  const depositAmount = establishment.pricePerNight || 0; // mapped earlier during creation
+  const platformFee = Math.round(depositAmount * 0.05);
+  const totalAmount = depositAmount + platformFee;
 
-  console.log(`\n=========================================`);
-  console.log(`📧 SIMULATED EMAIL TO GUEST (${guest.email}):`);
-  console.log(`Subject: Your VIP Request at ${establishment.title} is Pending Payment`);
-  console.log(`Body: Please complete your deposit of ₦${grandTotal.toLocaleString()} to secure your table for ${guestCount} guests at ${arrivalTime}. Your funds are held securely in platform escrow until you arrive.`);
-  
-  console.log(`\n📧 SIMULATED EMAIL TO HOST (${host.email}):`);
-  console.log(`Subject: New VIP Reservation Request Initiated`);
-  console.log(`Body: ${guest.firstName} is currently securing a deposit for ${guestCount} guests at ${arrivalTime} on ${reservationDate}. We will notify you once the escrow is funded.`);
-  console.log(`=========================================\n`);
+  // Bundle everything Paystack needs to send back to the webhook
+  const metadata = {
+    custom_fields: [
+      { display_name: "Property ID", variable_name: "propertyId", value: establishmentId },
+      { display_name: "User ID", variable_name: "userId", value: user._id.toString() },
+      { display_name: "Check In", variable_name: "checkInDate", value: reservationDate }, // Using checkInDate to match schema
+      { display_name: "Arrival Time", variable_name: "arrivalTime", value: arrivalTime }, 
+      { display_name: "Guests", variable_name: "guestsCount", value: guestCount.toString() },
+      { display_name: "Booking Type", variable_name: "bookingType", value: "VIP" } // Critical hook for Webhook
+    ]
+  };
+
+  const paystackData = await PaystackService.initializeTransaction(
+    user.email,
+    totalAmount,
+    metadata
+  );
 
   res.status(200).json({
     status: 'success',
-    message: 'Reservation initiated. Proceed to payment.',
+    message: 'VIP Reservation initiated',
     data: {
       checkoutUrl: paystackData.authorization_url,
-      reservationId: reservation._id
     }
   });
 });

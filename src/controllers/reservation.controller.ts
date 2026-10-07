@@ -155,7 +155,35 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
           }
 
           case 'VIP': {
-            console.log(`⏳ [Webhook] VIP logic placeholder triggered (Ref: ${reference})`);
+            // 1. Create the VIP Reservation in the unified Reservation collection
+            const newVipReservation: any = await Reservation.create({
+              userId: metadata.userId,
+              propertyId: metadata.propertyId,
+              checkInDate: new Date(metadata.checkInDate),
+              // VIP doesn't strictly use checkOutDate, so we default it to the next day
+              checkOutDate: new Date(new Date(metadata.checkInDate).getTime() + (24 * 60 * 60 * 1000)),
+              guestsCount: Number(metadata.guestsCount),
+              
+              // We map arrivalTime into a specific note or custom field if needed, 
+              // but since the schema is strict, we handle the core escrow lock here:
+              totalAmount: txData.amount / 100, 
+              paystackReference: reference,
+              paymentStatus: 'SUCCESS',
+              escrowStatus: 'HELD' // Instantly lock funds in Escrow
+            } as any);
+
+            // 2. Lock the date in the VIP Establishment's bookedDates array
+            await Property.findByIdAndUpdate(metadata.propertyId, {
+              $push: {
+                bookedDates: {
+                  startDate: new Date(metadata.checkInDate),
+                  endDate: new Date(new Date(metadata.checkInDate).getTime() + (24 * 60 * 60 * 1000)),
+                  reservationId: newVipReservation._id
+                } as any 
+              }
+            });
+            
+            console.log(`✅ [Webhook] VIP Reservation secured & Deposit Escrowed (Ref: ${reference})`);
             break;
           }
 
