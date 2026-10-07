@@ -13,6 +13,16 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@react-email/components": "^1.0.12",
+    "@react-email/render": "^2.1.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/morgan": "^1.9.10",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^26.4.1",
+    "@types/streamifier": "^0.1.2",
     "axios": "^1.20.0",
     "bcryptjs": "^3.0.3",
     "cloudinary": "^2.11.0",
@@ -24,19 +34,13 @@
     "mongoose": "^9.9.5",
     "morgan": "^1.12.0",
     "multer": "^2.3.0",
-    "streamifier": "^0.1.1",
-    
-   
-    "@types/bcryptjs": "^2.4.6",
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6",
-    "@types/jsonwebtoken": "^9.0.10",
-    "@types/morgan": "^1.9.10",
-    "@types/multer": "^2.2.0",
-    "@types/node": "^26.4.1",
-    "@types/streamifier": "^0.1.2"
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "resend": "^6.32.1",
+    "streamifier": "^0.1.1"
   },
   "devDependencies": {
+    "@types/react": "^19.3.0",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   }

@@ -1,12 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
-import { ReservationService } from '../services/reservation.service.js';
+import {EmailService } from '../services/email.service'
 import { PaystackService } from '../services/paystack.service.js';
 import { Reservation } from '../models/Reservation.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 import { Property } from '../models/Property.js';
 import { CarReservation } from '../models/CarReservation.js';
-import { Car } from '../models/Car.js';
+import { Car } from '../models/Car.js'
+import { User } from '../models/User.js';
 
 export const initiateBooking = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   // Added bookingType and roomId to the incoming request payload
@@ -72,6 +73,12 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
       const bookingType = metadata.bookingType || 'PROPERTY'; 
 
       try {
+        // Variables to collect for the unified email trigger
+        let assetTitle = '';
+        let host: any = null;
+        let datesOrTime = '';
+        const guest = await User.findById(metadata.userId);
+
         switch (bookingType) {
           case 'PROPERTY': {
             const newReservation = await Reservation.create({
@@ -85,7 +92,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
               paymentStatus: 'SUCCESS'
             });
 
-            await Property.findByIdAndUpdate(metadata.propertyId, {
+            const property = await Property.findByIdAndUpdate(metadata.propertyId, {
               $push: {
                 bookedDates: {
                   startDate: new Date(metadata.checkInDate),
@@ -93,17 +100,20 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
                   reservationId: newReservation._id
                 }
               }
-            });
+            }).populate('ownerId');
+
+            assetTitle = property?.title || 'Luxury Shortlet';
+            host = property?.ownerId;
+            datesOrTime = `${new Date(metadata.checkInDate).toLocaleDateString()} to ${new Date(metadata.checkOutDate).toLocaleDateString()}`;
             console.log(`✅ [Webhook] Property Reservation created & Dates Locked (Ref: ${reference})`);
             break;
           }
 
           case 'HOTEL': {
-            // 1. Map metadata.roomId to the schema's roomTypeId field, cast as 'any'
             const newHotelReservation: any = await Reservation.create({
               userId: metadata.userId,
               propertyId: metadata.propertyId,
-              roomTypeId: metadata.roomId, // Map the webhook's roomId to the DB's roomTypeId
+              roomTypeId: metadata.roomId, 
               checkInDate: new Date(metadata.checkInDate),
               checkOutDate: new Date(metadata.checkOutDate),
               guestsCount: Number(metadata.guestsCount),
@@ -111,20 +121,22 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
               paystackReference: reference,
               paymentStatus: 'SUCCESS',
               escrowStatus: 'HELD'
-            } as any); // Force TypeScript to accept the payload
+            } as any); 
 
-            // 2. Lock the dates in the property collection using roomTypeId
-            await Property.findByIdAndUpdate(metadata.propertyId, {
+            const property = await Property.findByIdAndUpdate(metadata.propertyId, {
               $push: {
                 bookedDates: {
                   startDate: new Date(metadata.checkInDate),
                   endDate: new Date(metadata.checkOutDate),
                   reservationId: newHotelReservation._id,
                   roomTypeId: metadata.roomId 
-                } as any // Force TypeScript to accept the push payload
+                } as any 
               }
-            });
+            }).populate('ownerId');
             
+            assetTitle = property?.title || 'Luxury Hotel Room';
+            host = property?.ownerId;
+            datesOrTime = `${new Date(metadata.checkInDate).toLocaleDateString()} to ${new Date(metadata.checkOutDate).toLocaleDateString()}`;
             console.log(`✅ [Webhook] Hotel Room Reservation secured & Escrow Held (Ref: ${reference})`);
             break;
           }
@@ -139,7 +151,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
               reservation.reservationStatus = 'ACTIVE'; 
               await reservation.save();
 
-              await Car.findByIdAndUpdate(metadata.carId, {
+              const car = await Car.findByIdAndUpdate(metadata.carId, {
                 $push: {
                   bookedDates: {
                     startDate: reservation.pickupTime,
@@ -147,33 +159,30 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
                     reservationId: reservation._id
                   }
                 }
-              });
+              }).populate('ownerId');
               
+              assetTitle = `${car?.make} ${car?.carModel} ${car?.year}`;
+              host = car?.ownerId;
+              datesOrTime = `${new Date(reservation.pickupTime).toLocaleString()} to ${new Date(reservation.dropoffTime).toLocaleString()}`;
               console.log(`✅ [Webhook] Car Reservation secured & Dates Locked (Ref: ${reference})`);
             }
             break;
           }
 
           case 'VIP': {
-            // 1. Create the VIP Reservation in the unified Reservation collection
             const newVipReservation: any = await Reservation.create({
               userId: metadata.userId,
               propertyId: metadata.propertyId,
               checkInDate: new Date(metadata.checkInDate),
-              // VIP doesn't strictly use checkOutDate, so we default it to the next day
               checkOutDate: new Date(new Date(metadata.checkInDate).getTime() + (24 * 60 * 60 * 1000)),
               guestsCount: Number(metadata.guestsCount),
-              
-              // We map arrivalTime into a specific note or custom field if needed, 
-              // but since the schema is strict, we handle the core escrow lock here:
               totalAmount: txData.amount / 100, 
               paystackReference: reference,
               paymentStatus: 'SUCCESS',
-              escrowStatus: 'HELD' // Instantly lock funds in Escrow
+              escrowStatus: 'HELD'
             } as any);
 
-            // 2. Lock the date in the VIP Establishment's bookedDates array
-            await Property.findByIdAndUpdate(metadata.propertyId, {
+            const property = await Property.findByIdAndUpdate(metadata.propertyId, {
               $push: {
                 bookedDates: {
                   startDate: new Date(metadata.checkInDate),
@@ -181,8 +190,11 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
                   reservationId: newVipReservation._id
                 } as any 
               }
-            });
+            }).populate('ownerId');
             
+            assetTitle = property?.title || 'VIP Venue';
+            host = property?.ownerId;
+            datesOrTime = `${new Date(metadata.checkInDate).toLocaleDateString()} (Arrival: ${metadata.arrivalTime || 'TBD'})`;
             console.log(`✅ [Webhook] VIP Reservation secured & Deposit Escrowed (Ref: ${reference})`);
             break;
           }
@@ -190,6 +202,21 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
           default:
             console.warn(`⚠️ [Webhook] Unknown bookingType received: ${bookingType}`);
         }
+
+        // --- NEW: FIRE BOOKING NOTIFICATIONS ---
+        if (guest && host) {
+          EmailService.sendBookingSuccess({
+            guestEmail: guest.email,
+            guestName: guest.firstName || 'Guest',
+            hostEmail: host.email,
+            hostName: host.firstName || 'Host',
+            assetTitle,
+            bookingType: bookingType as any,
+            amount: txData.amount / 100,
+            datesOrTime
+          }).catch(console.error); // Fire and forget
+        }
+
       } catch (dbError) {
         console.error('❌ Webhook Database Write Error:', dbError);
       }
@@ -256,7 +283,6 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
     }
   }
 });
-
 
 export const getMyBookings = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const userId = req.user?._id?.toString();

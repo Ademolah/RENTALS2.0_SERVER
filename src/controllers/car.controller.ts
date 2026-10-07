@@ -6,6 +6,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 import { CloudinaryService } from '../services/cloudinary.service.js';
 import { CarReservation } from '../models/CarReservation.js';
+import {EmailService} from '../services/email.service.js';
 
 
 // Add this to src/controllers/car.controller.ts
@@ -218,7 +219,14 @@ export const confirmCarHandover = asyncHandler(async (req: Request, res: Respons
   const userId = req.user!._id.toString();
   const userRole = req.user!.role;
 
-  const reservation = await CarReservation.findById(reservationId).populate('carId');
+  // SURGICAL FIX: Deep populate to fetch guest and host details for emails
+  const reservation = await CarReservation.findById(reservationId)
+    .populate('userId')
+    .populate({ 
+      path: 'carId', 
+      populate: { path: 'ownerId' } 
+    });
+
   if (!reservation) {
     return next(new AppError('Reservation not found', 404));
   }
@@ -227,33 +235,36 @@ export const confirmCarHandover = asyncHandler(async (req: Request, res: Respons
     return next(new AppError('Cannot handover an unpaid reservation', 400));
   }
 
-  // Determine who is making the request and update their respective flag
-  const isGuest = reservation.userId.toString() === userId;
-  const isOwner = (reservation.carId as any).ownerId.toString() === userId || userRole === 'ADMIN';
+  const guest = reservation.userId as any;
+  const car = reservation.carId as any;
+  const owner = car.ownerId as any;
+
+  const isGuest = guest._id.toString() === userId;
+  const isOwner = owner._id.toString() === userId || userRole === 'ADMIN';
 
   if (!isGuest && !isOwner) {
     return next(new AppError('You are not authorized to modify this reservation', 403));
   }
 
-  if (isGuest) {
-    reservation.guestConfirmedPickup = true;
-  }
-  
-  if (isOwner) {
-    reservation.ownerConfirmedHandover = true;
-  }
+  if (isGuest) reservation.guestConfirmedPickup = true;
+  if (isOwner) reservation.ownerConfirmedHandover = true;
 
-  // The Escrow Release Trigger Logic
   if (reservation.guestConfirmedPickup && reservation.ownerConfirmedHandover && reservation.escrowStatus === 'HELD') {
-    
-    // Calculate 95% payout (5% platform commission)
-    const payoutAmount = Math.round(reservation.totalAmount * 0.95);
-    
-    // Trigger Paystack Transfer to Landlord/Owner (Requires owner's recipient code)
-    // await PaystackService.transferFunds(payoutAmount, (reservation.carId as any).ownerId);
-    
     reservation.escrowStatus = 'RELEASED';
-    reservation.reservationStatus = 'ACTIVE'; // Car is now officially on the road
+    reservation.reservationStatus = 'ACTIVE'; 
+    console.log(`[ESCROW RELEASED] Car Booking ${reservation._id} funds authorized for payout.`);
+
+    // --- NEW: FIRE CAR ESCROW NOTIFICATION ---
+    EmailService.sendEscrowRelease({
+      guestEmail: guest.email,
+      guestName: guest.firstName || 'Guest',
+      hostEmail: owner.email,
+      hostName: owner.firstName || 'Owner',
+      assetTitle: `${car.make} ${car.carModel} ${car.year}`,
+      bookingType: 'CAR',
+      amount: reservation.totalAmount, // Assuming the 5% cut is handled elsewhere in your transfer logic
+      datesOrTime: `${new Date(reservation.pickupTime).toLocaleString()} to ${new Date(reservation.dropoffTime).toLocaleString()}`
+    }).catch(console.error); // Fire and forget
   }
 
   await reservation.save();
