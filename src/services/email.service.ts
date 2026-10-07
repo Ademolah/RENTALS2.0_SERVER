@@ -2,6 +2,9 @@ import { Resend } from 'resend';
 import { render } from '@react-email/render';
 import React from 'react';
 import { LuxuryEmailTemplate } from '../emails/EmailTemplate'; 
+import * as dotenv from 'dotenv'
+
+dotenv.config()
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const ADMIN_EMAIL = 'concierge@rentals.com'; // Hardcoded admin email
