@@ -1,11 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
 import { User } from '../models/User.js';
 import { AuthService } from '../services/auth.service.js';
+import { EmailService } from '../services/email.service.js'; // 1. IMPORT EMAIL SERVICE
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 
 export const registerUser = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // 1. ADDED phoneNumber here
   const { email, password, firstName, lastName, role, phoneNumber } = req.body;
 
   // Prevent users from bypassing security to become ADMIN
@@ -24,9 +24,16 @@ export const registerUser = asyncHandler(async (req: Request, res: Response, nex
     passwordHash,
     firstName,
     lastName,
-    phoneNumber, // 2. ADDED phoneNumber here
+    phoneNumber, 
     role: assignedRole || 'USER',
   });
+
+  // 2. SURGICAL INSERTION: Fire the welcome email asynchronously 
+  EmailService.sendUserWelcome({
+    to: newUser.email,
+    firstName: newUser.firstName,
+    exploreUrl: 'https://rentalsafrica.com' // Set to your frontend base URL
+  }).catch(console.error); // Catch prevents email failure from crashing the registration
 
   const token = AuthService.generateToken(newUser.id);
 
@@ -56,11 +63,11 @@ export const loginUser = asyncHandler(async (req: Request, res: Response, next: 
 
   const token = AuthService.generateToken(user._id.toString()); 
 
-user.passwordHash = undefined as any;
+  user.passwordHash = undefined as any;
 
-res.status(200).json({
-  status: 'success',
-  token,
-  data: { user }
-});
+  res.status(200).json({
+    status: 'success',
+    token,
+    data: { user }
+  });
 });

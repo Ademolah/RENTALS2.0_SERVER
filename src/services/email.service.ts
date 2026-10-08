@@ -26,6 +26,13 @@ interface HostWelcomePayload {
   dashboardUrl: string;
 }
 
+// NEW: Interface for general user registration
+interface UserWelcomePayload {
+  to: string;
+  firstName: string;
+  exploreUrl: string;
+}
+
 export class EmailService {
   
   static async sendBookingSuccess(data: NotificationPayload) {
@@ -80,7 +87,6 @@ export class EmailService {
     }
   }
 
-  // --- NEW: SURGICALLY INSERTED HOST WELCOME ---
   static async sendHostWelcome(data: HostWelcomePayload) {
     try {
       const html = await render(
@@ -102,6 +108,31 @@ export class EmailService {
       console.log(`[Email Service] Host Welcome email dispatched to ${data.to}`);
     } catch (error) {
       console.error('[Email Service] Failed to send Host Welcome email:', error);
+    }
+  }
+
+  // --- NEW: USER WELCOME EMAIL DISPATCHER ---
+  static async sendUserWelcome(data: UserWelcomePayload) {
+    try {
+      const html = await render(
+        React.createElement(LuxuryEmailTemplate, {
+          recipientName: data.firstName,
+          role: 'GUEST', // Default all new registrants to Guest logic
+          eventType: 'USER_WELCOME',
+          dashboardUrl: data.exploreUrl // Reusing the button URL prop
+        })
+      );
+
+      await resend.emails.send({
+        from: 'Rentals <noreply@rentalsafrica.com>',
+        to: data.to,
+        subject: 'Welcome to Rentals Africa',
+        html: html
+      });
+
+      console.log(`[Email Service] User Welcome email dispatched to ${data.to}`);
+    } catch (error) {
+      console.error('[Email Service] Failed to send User Welcome email:', error);
     }
   }
 }

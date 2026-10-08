@@ -6,12 +6,13 @@ import {
 interface EmailTemplateProps {
   recipientName: string;
   role: 'GUEST' | 'HOST' | 'ADMIN';
-  eventType: 'BOOKING_SUCCESS' | 'ESCROW_RELEASE' | 'HOST_WELCOME';
+  // ADDED: USER_WELCOME
+  eventType: 'BOOKING_SUCCESS' | 'ESCROW_RELEASE' | 'HOST_WELCOME' | 'USER_WELCOME';
   assetTitle?: string;
   bookingType?: 'PROPERTY' | 'SHORTLET' | 'CAR' | 'HOTEL' | 'VIP'; 
   amount?: number;
   datesOrTime?: string;
-  dashboardUrl?: string; // Added for the welcome email
+  dashboardUrl?: string; // Used for both Host Dashboard and User Explore button
 }
 
 export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
@@ -26,9 +27,11 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
 }) => {
   const isBooking = eventType === 'BOOKING_SUCCESS';
   const isHostWelcome = eventType === 'HOST_WELCOME';
+  const isUserWelcome = eventType === 'USER_WELCOME';
   
   const getHeadline = () => {
     if (isHostWelcome) return 'Welcome to the portfolio.';
+    if (isUserWelcome) return 'Welcome to Rentals Africa.';
     if (isBooking) {
       if (role === 'GUEST') return 'Reservation Secured.';
       if (role === 'HOST') return 'New Reservation.';
@@ -53,6 +56,9 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
 
   const getSubtext = () => {
     if (isHostWelcome) return 'Your host application has been reviewed and approved. Your account is now verified, granting you full access to list properties, manage reservations, and curate exceptional experiences for our guests.';
+    
+    // NEW: User welcome copy
+    if (isUserWelcome) return 'Your account has been successfully created. You can now explore and reserve exclusive luxury shortlets, vehicles, hotels, and VIP experiences across the continent.';
     
     if (isBooking) {
       if (role === 'GUEST') return `Your payment for ${assetTitle} is safely held by Rentals Africa until you arrive.`;
@@ -80,8 +86,8 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
             <Heading style={headline}>{getHeadline()}</Heading>
             <Text style={subtext}>{getSubtext()}</Text>
 
-            {/* Conditionally render the Receipt Details OR the Dashboard Button */}
-            {!isHostWelcome ? (
+            {/* If it's a welcome email (host or user), show a button instead of a receipt */}
+            {!isHostWelcome && !isUserWelcome ? (
               <Section style={detailsCard}>
                 <Row style={detailRow}>
                   <Column><Text style={detailLabel}>Asset</Text></Column>
@@ -106,7 +112,7 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
             ) : (
               <Section style={{ textAlign: 'left' }}>
                 <a href={dashboardUrl} style={primaryButton}>
-                  Access Host Dashboard
+                  {isHostWelcome ? 'Access Host Dashboard' : 'Explore Portfolio'}
                 </a>
               </Section>
             )}
@@ -147,7 +153,6 @@ const footerMessage = { color: '#a3a3a3', fontSize: '13px', lineHeight: '1.6', m
 const footer = { padding: '0 40px 40px', textAlign: 'center' as const };
 const footerBrand = { color: '#a3a3a3', fontSize: '11px', fontWeight: '400', letterSpacing: '1px' };
 
-// Added explicit button style for the welcome email
 const primaryButton = { 
   display: 'inline-block', 
   backgroundColor: '#111111', 
