@@ -7,7 +7,7 @@ import * as dotenv from 'dotenv'
 dotenv.config()
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-const ADMIN_EMAIL = 'rentalsafrica@gmail.com'; // Hardcoded admin email
+const ADMIN_EMAIL = 'rentalsafrica@gmail.com'; 
 
 interface NotificationPayload {
   guestEmail: string;
@@ -20,29 +20,28 @@ interface NotificationPayload {
   datesOrTime: string;
 }
 
+interface HostWelcomePayload {
+  to: string;
+  firstName: string;
+  dashboardUrl: string;
+}
+
 export class EmailService {
   
-  /**
-   * Fires when Paystack webhook confirms successful deposit
-   */
   static async sendBookingSuccess(data: NotificationPayload) {
     try {
-      // 1. Render HTML for Guest
       const guestHtml = await render(
         React.createElement(LuxuryEmailTemplate, { ...data, role: 'GUEST', eventType: 'BOOKING_SUCCESS', recipientName: data.guestName })
       );
       
-      // 2. Render HTML for Host
       const hostHtml = await render(
         React.createElement(LuxuryEmailTemplate, { ...data, role: 'HOST', eventType: 'BOOKING_SUCCESS', recipientName: data.hostName })
       );
 
-      // 3. Render HTML for Admin
       const adminHtml = await render(
         React.createElement(LuxuryEmailTemplate, { ...data, role: 'ADMIN', eventType: 'BOOKING_SUCCESS', recipientName: 'Admin Team' })
       );
 
-      // Batch send to avoid blocking (Fire and Forget)
       await Promise.all([
         resend.emails.send({ from: 'Rentals <noreply@rentalsafrica.com>', to: data.guestEmail, subject: `Reservation Confirmed: ${data.assetTitle}`, html: guestHtml }),
         resend.emails.send({ from: 'Rentals <noreply@rentalsafrica.com>', to: data.hostEmail, subject: `Action Required: New Booking for ${data.assetTitle}`, html: hostHtml }),
@@ -55,9 +54,6 @@ export class EmailService {
     }
   }
 
-  /**
-   * Fires when double-handshake is completed and funds are released
-   */
   static async sendEscrowRelease(data: NotificationPayload) {
     try {
       const guestHtml = await render(
@@ -81,6 +77,31 @@ export class EmailService {
       console.log(`[Email Service] Escrow Release emails broadcasted for ${data.assetTitle}`);
     } catch (error) {
       console.error('[Email Service] Failed to send Escrow Release emails:', error);
+    }
+  }
+
+  // --- NEW: SURGICALLY INSERTED HOST WELCOME ---
+  static async sendHostWelcome(data: HostWelcomePayload) {
+    try {
+      const html = await render(
+        React.createElement(LuxuryEmailTemplate, {
+          recipientName: data.firstName,
+          role: 'HOST',
+          eventType: 'HOST_WELCOME',
+          dashboardUrl: data.dashboardUrl
+        })
+      );
+
+      await resend.emails.send({
+        from: 'Rentals <noreply@rentalsafrica.com>',
+        to: data.to,
+        subject: 'Welcome to Rentals Africa Hosting',
+        html: html
+      });
+
+      console.log(`[Email Service] Host Welcome email dispatched to ${data.to}`);
+    } catch (error) {
+      console.error('[Email Service] Failed to send Host Welcome email:', error);
     }
   }
 }
