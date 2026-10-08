@@ -94,7 +94,7 @@ export const processHostApplication = asyncHandler(async (req: Request, res: Res
 
 export const getHostApplications = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const requests = await HostRequest.find()
-    .populate('user', 'firstName lastName email')
+    .populate('user', 'firstName lastName email phoneNumber')
     .sort('-createdAt');
     
   res.status(200).json({
