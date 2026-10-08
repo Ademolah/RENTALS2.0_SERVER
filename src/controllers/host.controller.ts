@@ -29,6 +29,11 @@ export const submitHostApplication = asyncHandler(async (req: Request, res: Resp
     return next(new AppError('You already have a pending host application.', 400));
   }
 
+  const ninInUse = await HostRequest.findOne({ nin });
+  if (ninInUse) {
+    return next(new AppError('This National ID (NIN) has already been registered on our platform.', 400));
+  }
+
   const hostRequest = await HostRequest.create({
     user: userId,
     address,
@@ -96,5 +101,21 @@ export const getHostApplications = asyncHandler(async (req: Request, res: Respon
     status: 'success',
     results: requests.length,
     data: { requests }
+  });
+});
+
+export const checkApplicationStatus = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const userId = req.user!._id.toString();
+  
+  // Find the most recent application submitted by this user
+  const request = await HostRequest.findOne({ user: userId }).sort('-createdAt');
+  
+  res.status(200).json({
+    status: 'success',
+    data: { 
+      // Returns 'PENDING', 'REJECTED', 'APPROVED', or 'IDLE' (if they never applied)
+      status: request ? request.status : 'IDLE',
+      notes: request ? request.adminNotes : ''
+    }
   });
 });
