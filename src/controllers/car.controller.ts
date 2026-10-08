@@ -257,12 +257,16 @@ export const confirmCarHandover = asyncHandler(async (req: Request, res: Respons
     // --- NEW: FIRE CAR ESCROW NOTIFICATION ---
     EmailService.sendEscrowRelease({
       guestEmail: guest.email,
-      guestName: guest.firstName || 'Guest',
+      guestName: `${guest.firstName || ''} ${guest.lastName || ''}`.trim() || 'Guest',
+      guestPhone: guest.phoneNumber || 'No phone provided',
+      
       hostEmail: owner.email,
-      hostName: owner.firstName || 'Owner',
+      hostName: `${owner.firstName || ''} ${owner.lastName || ''}`.trim() || 'Owner',
+      hostPhone: owner.phoneNumber || 'No phone provided', 
+      
       assetTitle: `${car.make} ${car.carModel} ${car.year}`,
       bookingType: 'CAR',
-      amount: reservation.totalAmount, // Assuming the 5% cut is handled elsewhere in your transfer logic
+      amount: reservation.totalAmount, 
       datesOrTime: `${new Date(reservation.pickupTime).toLocaleString()} to ${new Date(reservation.dropoffTime).toLocaleString()}`
     }).catch(console.error); // Fire and forget
   }

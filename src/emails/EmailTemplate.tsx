@@ -6,13 +6,20 @@ import {
 interface EmailTemplateProps {
   recipientName: string;
   role: 'GUEST' | 'HOST' | 'ADMIN';
-  // ADDED: USER_WELCOME
   eventType: 'BOOKING_SUCCESS' | 'ESCROW_RELEASE' | 'HOST_WELCOME' | 'USER_WELCOME';
   assetTitle?: string;
   bookingType?: 'PROPERTY' | 'SHORTLET' | 'CAR' | 'HOTEL' | 'VIP'; 
   amount?: number;
   datesOrTime?: string;
-  dashboardUrl?: string; // Used for both Host Dashboard and User Explore button
+  dashboardUrl?: string; 
+  
+  // NEW: Contact Details for Admin Ledger
+  guestName?: string;
+  guestEmail?: string;
+  guestPhone?: string;
+  hostName?: string;
+  hostEmail?: string;
+  hostPhone?: string;
 }
 
 export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
@@ -23,7 +30,13 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
   bookingType,
   amount,
   datesOrTime,
-  dashboardUrl
+  dashboardUrl,
+  guestName,
+  guestEmail,
+  guestPhone,
+  hostName,
+  hostEmail,
+  hostPhone
 }) => {
   const isBooking = eventType === 'BOOKING_SUCCESS';
   const isHostWelcome = eventType === 'HOST_WELCOME';
@@ -57,7 +70,6 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
   const getSubtext = () => {
     if (isHostWelcome) return 'Your host application has been reviewed and approved. Your account is now verified, granting you full access to list properties, manage reservations, and curate exceptional experiences for our guests.';
     
-    // NEW: User welcome copy
     if (isUserWelcome) return 'Your account has been successfully created. You can now explore and reserve exclusive luxury shortlets, vehicles, hotels, and VIP experiences across the continent.';
     
     if (isBooking) {
@@ -86,29 +98,51 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
             <Heading style={headline}>{getHeadline()}</Heading>
             <Text style={subtext}>{getSubtext()}</Text>
 
-            {/* If it's a welcome email (host or user), show a button instead of a receipt */}
             {!isHostWelcome && !isUserWelcome ? (
-              <Section style={detailsCard}>
-                <Row style={detailRow}>
-                  <Column><Text style={detailLabel}>Asset</Text></Column>
-                  <Column><Text style={detailValue}>{assetTitle}</Text></Column>
-                </Row>
-                <Hr style={divider} />
-                <Row style={detailRow}>
-                  <Column><Text style={detailLabel}>Category</Text></Column>
-                  <Column><Text style={detailValue}>{getDisplayCategory()}</Text></Column>
-                </Row>
-                <Hr style={divider} />
-                <Row style={detailRow}>
-                  <Column><Text style={detailLabel}>Schedule</Text></Column>
-                  <Column><Text style={detailValue}>{datesOrTime}</Text></Column>
-                </Row>
-                <Hr style={divider} />
-                <Row style={detailRow}>
-                  <Column><Text style={detailLabel}>{isBooking ? 'Secure Deposit' : 'Payout Amount'}</Text></Column>
-                  <Column><Text style={amountText}>₦{amount?.toLocaleString()}</Text></Column>
-                </Row>
-              </Section>
+              <>
+                <Section style={detailsCard}>
+                  <Row style={detailRow}>
+                    <Column><Text style={detailLabel}>Asset</Text></Column>
+                    <Column><Text style={detailValue}>{assetTitle}</Text></Column>
+                  </Row>
+                  <Hr style={divider} />
+                  <Row style={detailRow}>
+                    <Column><Text style={detailLabel}>Category</Text></Column>
+                    <Column><Text style={detailValue}>{getDisplayCategory()}</Text></Column>
+                  </Row>
+                  <Hr style={divider} />
+                  <Row style={detailRow}>
+                    <Column><Text style={detailLabel}>Schedule</Text></Column>
+                    <Column><Text style={detailValue}>{datesOrTime}</Text></Column>
+                  </Row>
+                  <Hr style={divider} />
+                  <Row style={detailRow}>
+                    <Column><Text style={detailLabel}>{isBooking ? 'Secure Deposit' : 'Payout Amount'}</Text></Column>
+                    <Column><Text style={amountText}>₦{amount?.toLocaleString()}</Text></Column>
+                  </Row>
+                </Section>
+
+                {/* NEW: ADMIN EXCLUSIVE CONTACT LEDGER */}
+                {role === 'ADMIN' && (
+                  <Section style={adminContactCard}>
+                    <Text style={adminContactTitle}>Guest Information</Text>
+                    <Text style={adminContactText}>
+                      {guestName || 'N/A'} <br/>
+                      {guestEmail || 'N/A'} <br/>
+                      {guestPhone || 'No phone provided'}
+                    </Text>
+                    
+                    <Hr style={divider} />
+                    
+                    <Text style={adminContactTitle}>Host Information</Text>
+                    <Text style={{ ...adminContactText, marginBottom: 0 }}>
+                      {hostName || 'N/A'} <br/>
+                      {hostEmail || 'N/A'} <br/>
+                      {hostPhone || 'No phone provided'}
+                    </Text>
+                  </Section>
+                )}
+              </>
             ) : (
               <Section style={{ textAlign: 'left' }}>
                 <a href={dashboardUrl} style={primaryButton}>
@@ -134,7 +168,7 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
   );
 };
 
-// --- STYLES: Monochromatic Editorial Luxury ---
+// --- STYLES ---
 const main = { backgroundColor: '#ffffff', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif' };
 const container = { margin: '40px auto', maxWidth: '600px', border: '1px solid #e5e5e5', borderRadius: '0px' };
 const header = { padding: '40px 40px 30px', textAlign: 'center' as const, borderBottom: '1px solid #e5e5e5' };
@@ -152,16 +186,9 @@ const divider = { borderColor: '#e5e5e5', margin: '0' };
 const footerMessage = { color: '#a3a3a3', fontSize: '13px', lineHeight: '1.6', marginTop: '40px', textAlign: 'center' as const };
 const footer = { padding: '0 40px 40px', textAlign: 'center' as const };
 const footerBrand = { color: '#a3a3a3', fontSize: '11px', fontWeight: '400', letterSpacing: '1px' };
+const primaryButton = { display: 'inline-block', backgroundColor: '#111111', color: '#ffffff', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold', textTransform: 'uppercase' as const, letterSpacing: '1px', padding: '16px 32px', borderRadius: '8px' };
 
-const primaryButton = { 
-  display: 'inline-block', 
-  backgroundColor: '#111111', 
-  color: '#ffffff', 
-  textDecoration: 'none', 
-  fontSize: '13px', 
-  fontWeight: 'bold', 
-  textTransform: 'uppercase' as const, 
-  letterSpacing: '1px', 
-  padding: '16px 32px', 
-  borderRadius: '8px' 
-};
+// Admin Contacts Styling
+const adminContactCard = { backgroundColor: '#ffffff', padding: '24px', border: '1px solid #e5e5e5', borderTop: 'none' };
+const adminContactTitle = { color: '#000000', fontSize: '10px', textTransform: 'uppercase' as const, letterSpacing: '2px', fontWeight: '700', margin: '0 0 8px 0' };
+const adminContactText = { color: '#525252', fontSize: '13px', margin: '0 0 16px 0', lineHeight: '1.6' };

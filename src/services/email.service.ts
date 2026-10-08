@@ -12,8 +12,10 @@ const ADMIN_EMAIL = 'rentalsafrica@gmail.com';
 interface NotificationPayload {
   guestEmail: string;
   guestName: string;
+  guestPhone?: string; // ADDED
   hostEmail: string;
   hostName: string;
+  hostPhone?: string;  // ADDED
   assetTitle: string;
   bookingType: 'SHORTLET' | 'CAR' | 'HOTEL' | 'VIP';
   amount: number;

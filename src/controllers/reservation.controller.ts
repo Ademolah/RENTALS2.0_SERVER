@@ -203,13 +203,18 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
             console.warn(`⚠️ [Webhook] Unknown bookingType received: ${bookingType}`);
         }
 
+       
         // --- NEW: FIRE BOOKING NOTIFICATIONS ---
         if (guest && host) {
           EmailService.sendBookingSuccess({
             guestEmail: guest.email,
-            guestName: guest.firstName || 'Guest',
+            guestName: `${guest.firstName || ''} ${guest.lastName || ''}`.trim() || 'Guest',
+            guestPhone: guest.phoneNumber || 'No phone provided',
+            
             hostEmail: host.email,
-            hostName: host.firstName || 'Host',
+            hostName: `${host.firstName || ''} ${host.lastName || ''}`.trim() || 'Host',
+            hostPhone: host.phoneNumber || 'No phone provided',
+            
             assetTitle,
             bookingType: bookingType as any,
             amount: txData.amount / 100,
