@@ -117,6 +117,8 @@ export interface IProperty {
   title: string;
   description: string;
   category: PropertyCategory;
+  rating: number;
+  numReviews: number;
   ownerId: Types.ObjectId; 
   startingPrice?: number;
   establishmentType?: 'LOUNGE' | 'CLUB' | 'FINE_DINING' | 'BEACH_CLUB' | 'PRIVATE_YACHT' | 'OTHER';

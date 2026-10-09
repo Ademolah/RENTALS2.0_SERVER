@@ -26,6 +26,14 @@ const propertySchema = new Schema<IPropertyDocument>(
       enum: ['CAR RENTAL', 'SHORTLET', 'VIP RESERVATION', 'HOTEL'], 
       required: true 
     },
+    rating: {
+      type: Number,
+      default: 0,
+    },
+    numReviews: {
+      type: Number,
+      default: 0,
+    },
     startingPrice: { type: Number },
     hasBreakfast: { type: Boolean, default: false },
     roomTypes: {

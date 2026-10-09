@@ -13,6 +13,7 @@ import userRoutes from './routes/user.routes.js'
 import vipRoutes from './routes/vip.routes.js';
 import hostRoutes from './routes/host.routes.js';
 import adminRoutes from './routes/admin.routes.js';
+import reviewRoutes from './routes/reviews.routes.js'; // Import the review routes
 
 const app: Application = express();
 
@@ -25,6 +26,7 @@ app.use(morgan('dev')); // HTTP request logger
 
 
 app.use("/api/v1/auth", authRoutes)
+app.use('/api/v1/reviews', reviewRoutes); 
 app.use("/api/v1/admin", adminRoutes) 
 app.use('/api/v1/hosts', hostRoutes);
 app.use('/api/v1/vip', vipRoutes);
