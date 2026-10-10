@@ -255,7 +255,7 @@ export const confirmCarHandover = asyncHandler(async (req: Request, res: Respons
     console.log(`[ESCROW RELEASED] Car Booking ${reservation._id} funds authorized for payout.`);
 
     // --- NEW: FIRE CAR ESCROW NOTIFICATION ---
-    EmailService.sendEscrowRelease({
+   EmailService.sendEscrowRelease({
       guestEmail: guest.email,
       guestName: `${guest.firstName || ''} ${guest.lastName || ''}`.trim() || 'Guest',
       guestPhone: guest.phoneNumber || 'No phone provided',
@@ -268,7 +268,9 @@ export const confirmCarHandover = asyncHandler(async (req: Request, res: Respons
       bookingType: 'CAR',
       amount: reservation.totalAmount, 
       datesOrTime: `${new Date(reservation.pickupTime).toLocaleString()} to ${new Date(reservation.dropoffTime).toLocaleString()}`,
-      paystackReference: reservation.paystackReference // Pass the reference here
+      
+      // 💡 THE FIX: Force it to always be a string by providing a fallback
+      paystackReference: reservation.paystackReference || 'N/A' 
     }).catch(console.error);
   }
 
