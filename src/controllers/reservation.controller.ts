@@ -136,10 +136,16 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
               }
             }).populate('ownerId');
             
-            assetTitle = property?.title || 'Luxury Hotel Room';
+            // 💡 NEW: Dynamically find the specific room booked using the metadata.roomId
+            const bookedRoom = property?.roomTypes?.find((r: any) => r._id.toString() === String(metadata.roomId));
+            const exactRoomName = bookedRoom ? bookedRoom.name : 'Suite';
+
+            // 💡 NEW: Append the exact room name to the assetTitle so it appears perfectly in the email
+            assetTitle = property?.title ? `${property.title} - ${exactRoomName}` : `Hotel ${exactRoomName}`;
+            
             host = property?.ownerId;
             datesOrTime = `${new Date(metadata.checkInDate).toLocaleDateString()} to ${new Date(metadata.checkOutDate).toLocaleDateString()}`;
-            console.log(`✅ [Webhook] Hotel Room Reservation secured & Escrow Held (Ref: ${reference})`);
+            console.log(`✅ [Webhook] Hotel Room (${exactRoomName}) secured & Escrow Held (Ref: ${reference})`);
             break;
           }
 
