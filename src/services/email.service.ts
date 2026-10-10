@@ -20,6 +20,7 @@ interface NotificationPayload {
   bookingType: 'SHORTLET' | 'CAR' | 'HOTEL' | 'VIP';
   amount: number;
   datesOrTime: string;
+  paystackReference?: string; 
 }
 
 interface HostWelcomePayload {
@@ -40,15 +41,15 @@ export class EmailService {
   static async sendBookingSuccess(data: NotificationPayload) {
     try {
       const guestHtml = await render(
-        React.createElement(LuxuryEmailTemplate, { ...data, role: 'GUEST', eventType: 'BOOKING_SUCCESS', recipientName: data.guestName })
+        React.createElement(LuxuryEmailTemplate, { ...data, role: 'GUEST', eventType: 'BOOKING_SUCCESS', recipientName: data.guestName } as any)
       );
       
       const hostHtml = await render(
-        React.createElement(LuxuryEmailTemplate, { ...data, role: 'HOST', eventType: 'BOOKING_SUCCESS', recipientName: data.hostName })
+        React.createElement(LuxuryEmailTemplate, { ...data, role: 'HOST', eventType: 'BOOKING_SUCCESS', recipientName: data.hostName } as any)
       );
 
       const adminHtml = await render(
-        React.createElement(LuxuryEmailTemplate, { ...data, role: 'ADMIN', eventType: 'BOOKING_SUCCESS', recipientName: 'Admin Team' })
+        React.createElement(LuxuryEmailTemplate, { ...data, role: 'ADMIN', eventType: 'BOOKING_SUCCESS', recipientName: 'Admin Team' } as any)
       );
 
       await Promise.all([
@@ -66,15 +67,15 @@ export class EmailService {
   static async sendEscrowRelease(data: NotificationPayload) {
     try {
       const guestHtml = await render(
-        React.createElement(LuxuryEmailTemplate, { ...data, role: 'GUEST', eventType: 'ESCROW_RELEASE', recipientName: data.guestName })
+        React.createElement(LuxuryEmailTemplate, { ...data, role: 'GUEST', eventType: 'ESCROW_RELEASE', recipientName: data.guestName } as any)
       );
       
       const hostHtml = await render(
-        React.createElement(LuxuryEmailTemplate, { ...data, role: 'HOST', eventType: 'ESCROW_RELEASE', recipientName: data.hostName })
+        React.createElement(LuxuryEmailTemplate, { ...data, role: 'HOST', eventType: 'ESCROW_RELEASE', recipientName: data.hostName } as any)
       );
 
       const adminHtml = await render(
-        React.createElement(LuxuryEmailTemplate, { ...data, role: 'ADMIN', eventType: 'ESCROW_RELEASE', recipientName: 'Admin Team' })
+        React.createElement(LuxuryEmailTemplate, { ...data, role: 'ADMIN', eventType: 'ESCROW_RELEASE', recipientName: 'Admin Team' } as any)
       );
 
       await Promise.all([

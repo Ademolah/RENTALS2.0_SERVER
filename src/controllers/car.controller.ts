@@ -267,8 +267,9 @@ export const confirmCarHandover = asyncHandler(async (req: Request, res: Respons
       assetTitle: `${car.make} ${car.carModel} ${car.year}`,
       bookingType: 'CAR',
       amount: reservation.totalAmount, 
-      datesOrTime: `${new Date(reservation.pickupTime).toLocaleString()} to ${new Date(reservation.dropoffTime).toLocaleString()}`
-    }).catch(console.error); // Fire and forget
+      datesOrTime: `${new Date(reservation.pickupTime).toLocaleString()} to ${new Date(reservation.dropoffTime).toLocaleString()}`,
+      paystackReference: reservation.paystackReference // Pass the reference here
+    }).catch(console.error);
   }
 
   await reservation.save();

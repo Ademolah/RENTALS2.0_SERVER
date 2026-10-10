@@ -218,7 +218,8 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
             assetTitle,
             bookingType: bookingType as any,
             amount: txData.amount / 100,
-            datesOrTime
+            datesOrTime,
+            paystackReference: txData.reference
           }).catch(console.error); // Fire and forget
         }
 

@@ -7,19 +7,21 @@ interface EmailTemplateProps {
   recipientName: string;
   role: 'GUEST' | 'HOST' | 'ADMIN';
   eventType: 'BOOKING_SUCCESS' | 'ESCROW_RELEASE' | 'HOST_WELCOME' | 'USER_WELCOME';
-  assetTitle?: string;
-  bookingType?: 'PROPERTY' | 'SHORTLET' | 'CAR' | 'HOTEL' | 'VIP'; 
-  amount?: number;
-  datesOrTime?: string;
-  dashboardUrl?: string; 
+  assetTitle?: string | undefined;
+  bookingType?: 'PROPERTY' | 'SHORTLET' | 'CAR' | 'HOTEL' | 'VIP' | undefined; 
+  amount?: number | undefined;
+  datesOrTime?: string | undefined;
+  dashboardUrl?: string | undefined; 
   
-  // NEW: Contact Details for Admin Ledger
-  guestName?: string;
-  guestEmail?: string;
-  guestPhone?: string;
-  hostName?: string;
-  hostEmail?: string;
-  hostPhone?: string;
+  guestName?: string | undefined;
+  guestEmail?: string | undefined;
+  guestPhone?: string | undefined;
+  hostName?: string | undefined;
+  hostEmail?: string | undefined;
+  hostPhone?: string | undefined;
+  
+  // NEW: Payment Reference
+  paystackReference?: string | undefined;
 }
 
 export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
@@ -36,7 +38,8 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
   guestPhone,
   hostName,
   hostEmail,
-  hostPhone
+  hostPhone,
+  paystackReference
 }) => {
   const isBooking = eventType === 'BOOKING_SUCCESS';
   const isHostWelcome = eventType === 'HOST_WELCOME';
@@ -120,9 +123,19 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
                     <Column><Text style={detailLabel}>{isBooking ? 'Secure Deposit' : 'Payout Amount'}</Text></Column>
                     <Column><Text style={amountText}>₦{amount?.toLocaleString()}</Text></Column>
                   </Row>
+
+                  {/* NEW: Display Paystack Reference for Guest and Admin ONLY */}
+                  {paystackReference && (role === 'GUEST' || role === 'ADMIN') && (
+                    <>
+                      <Hr style={divider} />
+                      <Row style={detailRow}>
+                        <Column><Text style={detailLabel}>Payment Ref</Text></Column>
+                        <Column><Text style={detailValue}>{paystackReference}</Text></Column>
+                      </Row>
+                    </>
+                  )}
                 </Section>
 
-                {/* NEW: ADMIN EXCLUSIVE CONTACT LEDGER */}
                 {role === 'ADMIN' && (
                   <Section style={adminContactCard}>
                     <Text style={adminContactTitle}>Guest Information</Text>
@@ -187,8 +200,6 @@ const footerMessage = { color: '#a3a3a3', fontSize: '13px', lineHeight: '1.6', m
 const footer = { padding: '0 40px 40px', textAlign: 'center' as const };
 const footerBrand = { color: '#a3a3a3', fontSize: '11px', fontWeight: '400', letterSpacing: '1px' };
 const primaryButton = { display: 'inline-block', backgroundColor: '#111111', color: '#ffffff', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold', textTransform: 'uppercase' as const, letterSpacing: '1px', padding: '16px 32px', borderRadius: '8px' };
-
-// Admin Contacts Styling
 const adminContactCard = { backgroundColor: '#ffffff', padding: '24px', border: '1px solid #e5e5e5', borderTop: 'none' };
 const adminContactTitle = { color: '#000000', fontSize: '10px', textTransform: 'uppercase' as const, letterSpacing: '2px', fontWeight: '700', margin: '0 0 8px 0' };
 const adminContactText = { color: '#525252', fontSize: '13px', margin: '0 0 16px 0', lineHeight: '1.6' };
