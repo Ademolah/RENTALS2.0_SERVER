@@ -42,7 +42,11 @@ app.use(globalErrorHandler); // Global error handler
 
 // Health Check Route
 app.get('/health', (req: Request, res: Response) => {
-  res.status(200).json({ status: 'success', message: 'Rentals API is operational.' });
+  res.status(200).json({
+    status: 'success',
+    message: 'Rentals Africa API is awake and healthy',
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // Global Error Handler Guard

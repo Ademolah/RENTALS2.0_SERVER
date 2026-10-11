@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { startKeepAlive } from './utils/keepAlive.js';
 
 dotenv.config()
 
@@ -19,6 +20,7 @@ const startServer = async () => {
     // Start Express Server
     app.listen(PORT, () => {
       console.log(`🚀 Rentals API is running on port ${PORT}`);
+      startKeepAlive();
     });
   } catch (error) {
     console.error('❌ Failed to start the server:', error);
