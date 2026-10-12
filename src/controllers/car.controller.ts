@@ -90,16 +90,26 @@ export const listCars = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const listAllCars = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const { category, city, minPrice, maxPrice, limit = 10, page = 1, checkIn, checkOut } = req.query;
+  const { search, category, city, minPrice, maxPrice, limit = 10, page = 1, checkIn, checkOut } = req.query;
 
   const query: any = {};
 
-  if (checkIn || checkOut) {
-    query.isAvailable = true;
+  // 1. Universal Fuzzy Search Engine
+  if (search) {
+    query.$or = [
+      { make: { $regex: search,$options: 'i' } },
+      { carModel: { $regex: search,$options: 'i' } },
+      { 'location.city': { $regex: search,$options: 'i' } },
+      { 'location.state': { $regex: search,$options: 'i' } }
+    ];
+  }
+
+  // Legacy fallback if the app still explicitly uses ?city= instead of ?search=
+  if (city && !search) {
+    query['location.city'] = { $regex: new RegExp(city as string, 'i') };
   }
 
   if (category) query.category = category;
-  if (city) query['location.city'] = { $regex: new RegExp(city as string, 'i') };
 
   if (minPrice || maxPrice) {
     query.pricePer12Hours = {};
@@ -107,14 +117,45 @@ export const listAllCars = asyncHandler(async (req: Request, res: Response, next
     if (maxPrice) query.pricePer12Hours.$lte = Number(maxPrice);
   }
 
-  const skip = (Number(page) - 1) * Number(limit);
+  // 2. Date Availability Engine
+  if (checkIn && checkOut) {
+    const reqStart = new Date(checkIn as string);
+    const reqEnd = new Date(checkOut as string);
 
-  const cars = await Car.find(query)
-    .sort({ isAvailable: -1, createdAt: -1 }) 
-    .skip(skip)
-    .limit(Number(limit));
+    query.isAvailable = true; // Ensure global kill-switch is on
 
-  const total = await Car.countDocuments(query);
+    // Exclude cars that have an overlapping reservation for these dates
+    query.bookedDates = {
+      $not: {
+        $elemMatch: {
+          startDate: { $lt: reqEnd },
+          endDate: { $gt: reqStart }
+        }
+      }
+    };
+  } else if (checkIn || checkOut) {
+    // If only one date is provided randomly, fallback to basic availability
+    query.isAvailable = true;
+  }
+
+  // 3. Strict Pagination Caps (Audit Fix)
+  const pageNum = parseInt(page as string, 10) || 1;
+  let limitNum = parseInt(limit as string, 10) || 10;
+  
+  if (limitNum > 50) limitNum = 50; // Hard cap to prevent memory exhaustion
+
+  const skip = (pageNum - 1) * limitNum;
+
+  // 4. Parallel Query Execution for Speed
+  const [cars, total] = await Promise.all([
+    Car.find(query)
+      .sort({ isAvailable: -1, createdAt: -1 }) // Available first, then newest
+      .skip(skip)
+      .limit(limitNum),
+    Car.countDocuments(query)
+  ]);
+
+  console.log(`[DEBUG BACKEND]: Search Engine hit. Total cars fetched: ${cars.length}. Booked cars count: ${cars.filter((c: any) => c.isAvailable === false).length}`);
 
   res.status(200).json({
     status: 'success',
@@ -123,8 +164,8 @@ export const listAllCars = asyncHandler(async (req: Request, res: Response, next
       cars,
       pagination: {
         total,
-        page: Number(page),
-        pages: Math.ceil(total / Number(limit))
+        page: pageNum,
+        pages: Math.ceil(total / limitNum)
       }
     }
   });
