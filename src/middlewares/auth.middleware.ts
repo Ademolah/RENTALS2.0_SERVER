@@ -23,15 +23,23 @@ export const protect = asyncHandler(async (req: Request, res: Response, next: Ne
     return next(new AppError('You are not logged in! Please log in to get access.', 401));
   }
 
-  // ✅ THE CRITICAL FIX: Fetch the secret dynamically inside the function block
+  // ✅ Fetch the secret dynamically inside the function block
   const secret = process.env.JWT_SECRET;
   if (!secret) {
     console.error("🚨 CRITICAL ERROR: process.env.JWT_SECRET is undefined inside protect middleware!");
     return next(new AppError('Internal Server Error: Missing validation keys.', 500));
   }
 
-  // 2. Verify token payload using our freshly read secret
-  const decoded = jwt.verify(token, secret) as JwtPayload;
+  // 2. Verify token payload using our freshly read secret with strict error handling (Audit Fix 3.2)
+  let decoded: JwtPayload;
+  try {
+    decoded = jwt.verify(token, secret) as JwtPayload;
+  } catch (error: any) {
+    if (error.name === 'TokenExpiredError') {
+      return next(new AppError('Your session has expired. Please log in again.', 401));
+    }
+    return next(new AppError('Invalid authentication token. Please log in again.', 401));
+  }
 
   // 3. Check if user still exists
   const currentUser = await User.findById(decoded.id);

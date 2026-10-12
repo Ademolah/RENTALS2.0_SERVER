@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import { PropertyService } from '../services/property.service.js';
 import { CloudinaryService } from '../services/cloudinary.service.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -6,25 +7,19 @@ import { Property } from '../models/Property.js';
 import { Reservation } from '../models/Reservation.js';
 import { AppError } from '../utils/AppError.js';
 
-
 export const createProperty = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-
-  
   const files = req.files as Express.Multer.File[];
   
-  // 1. Process Images if they exist
   let imageUrls: string[] = [];
   if (files && files.length > 0) {
     imageUrls = await CloudinaryService.uploadMultipleImages(files);
   }
 
-  // 2. Parse nested address object (FormData sends objects as JSON strings or flattened keys)
   let parsedAddress = req.body.address;
   if (typeof parsedAddress === 'string') {
     parsedAddress = JSON.parse(parsedAddress);
   }
 
-  // 3. Construct Property Data
   const propertyData = {
     ...req.body,
     address: parsedAddress,
@@ -32,7 +27,6 @@ export const createProperty = asyncHandler(async (req: Request, res: Response, n
     ownerId: req.user?._id,
   };
 
-  // 4. Delegate to Service Layer
   const property = await PropertyService.createProperty(propertyData);
 
   res.status(201).json({
@@ -41,9 +35,6 @@ export const createProperty = asyncHandler(async (req: Request, res: Response, n
   });
 });
 
-
-
-// CREATE HOTEL
 export const createHotel = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { 
     title, description, street, city, state, 
@@ -97,12 +88,17 @@ export const createHotel = asyncHandler(async (req: Request, res: Response, next
   });
 });
 
-// UPDATE HOTEL
 export const updateHotel = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const hotelId = req.params.id;
-  const updates = { ...req.body };
+  // 💡 FIX: Explicitly cast to string
+  const hotelId = req.params.id as string;
 
+  if (!hotelId || !mongoose.Types.ObjectId.isValid(hotelId)) {
+    return next(new AppError('Invalid hotel ID format.', 400));
+  }
+
+  const updates = { ...req.body };
   const hotel = await Property.findById(hotelId);
+  
   if (!hotel) return next(new AppError('Hotel not found', 404));
 
   const isAdmin = req.user?.role === 'ADMIN';
@@ -136,10 +132,14 @@ export const updateHotel = asyncHandler(async (req: Request, res: Response, next
   });
 });
 
-// DELETE HOTEL
 export const deleteHotel = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const hotelId = req.params.id;
+  // 💡 FIX: Explicitly cast to string
+  const hotelId = req.params.id as string;
   
+  if (!hotelId || !mongoose.Types.ObjectId.isValid(hotelId)) {
+    return next(new AppError('Invalid hotel ID format.', 400));
+  }
+
   const hotel = await Property.findById(hotelId);
   if (!hotel) return next(new AppError('Hotel not found', 404));
 
@@ -158,47 +158,55 @@ export const deleteHotel = asyncHandler(async (req: Request, res: Response, next
   });
 });
 
-
 export const getProperties = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // ✅ THE CRITICAL FIX: Destructure the properties array and the total count from the service object
   const { properties, total } = await PropertyService.getProperties(req.query);
 
   res.status(200).json({
     status: 'success',
-    results: properties.length, // 💡 TypeScript now recognizes this as a valid array length!
-    totalCount: total,          // 💡 You can now safely pass the total database match count to the client
-    data: { 
-      properties 
-    }
+    results: properties.length, 
+    totalCount: total,          
+    data: { properties }
   });
 });
 
-// --- GET SINGLE PROPERTY CONTROLLER ---
 export const getProperty = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // 💡 Add "as string" at the end to satisfy the strict parameter requirements
-  const property = await PropertyService.getPropertyById(req.params.id as string);
+  // 💡 FIX: Explicitly cast to string
+  const propertyId = req.params.id as string;
+
+  if (!propertyId || !mongoose.Types.ObjectId.isValid(propertyId)) {
+    return next(new AppError('Invalid property ID format.', 400));
+  }
+
+  const property = await Property.findById(propertyId)
+    .populate('ownerId', 'firstName lastName profilePicture') 
+    .select('-__v'); 
 
   if (!property) {
-    res.status(404).json({
-      status: 'fail',
-      message: 'No property found with that ID'
-    });
-    return; 
+    return next(new AppError('No property found with that ID', 404));
+  }
+
+  const sanitizedProperty = property.toObject();
+  if (sanitizedProperty.bookedDates) {
+    sanitizedProperty.bookedDates = sanitizedProperty.bookedDates.map((booking: any) => ({
+      startDate: booking.startDate,
+      endDate: booking.endDate
+    })) as any;
   }
 
   res.status(200).json({
     status: 'success',
-    data: { 
-      property 
-    }
+    data: { property: sanitizedProperty }
   });
 });
 
-// Add this below getProperty in src/controllers/property.controller.ts
-
 export const checkPropertyAvailability = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { startDate, endDate } = req.body;
-  const propertyId = req.params.id;
+  // 💡 FIX: Explicitly cast to string
+  const propertyId = req.params.id as string;
+
+  if (!propertyId || !mongoose.Types.ObjectId.isValid(propertyId)) {
+    return next(new AppError('Invalid property ID format.', 400));
+  }
 
   if (!startDate || !endDate) {
     return next(new AppError('Please provide both startDate and endDate', 400));
@@ -217,7 +225,6 @@ export const checkPropertyAvailability = asyncHandler(async (req: Request, res: 
     return next(new AppError('No property found with that ID', 404));
   }
 
-  // Global Kill-Switch Check
   if (!property.isAvailable) {
     return res.status(200).json({ 
       available: false, 
@@ -225,7 +232,6 @@ export const checkPropertyAvailability = asyncHandler(async (req: Request, res: 
     });
   }
 
-  // Date Overlap Engine
   const hasOverlap = property.bookedDates.some((booking) => {
     const existingStart = new Date(booking.startDate);
     const existingEnd = new Date(booking.endDate);
@@ -245,11 +251,16 @@ export const checkPropertyAvailability = asyncHandler(async (req: Request, res: 
   });
 });
 
-
 export const updateProperty = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  // 💡 FIX: Explicitly cast to string
+  const propertyId = req.params.id as string;
+
+  if (!propertyId || !mongoose.Types.ObjectId.isValid(propertyId)) {
+    return next(new AppError('Invalid property ID format.', 400));
+  }
+
   let updateData = { ...req.body };
 
-  // Parse nested objects that were stringified for FormData
   if (updateData.address && typeof updateData.address === 'string') {
     updateData.address = JSON.parse(updateData.address);
   }
@@ -257,11 +268,8 @@ export const updateProperty = asyncHandler(async (req: Request, res: Response, n
     updateData.capacity = JSON.parse(updateData.capacity);
   }
 
-  // Handle new image uploads via Cloudinary
   if (req.files && Array.isArray(req.files) && req.files.length > 0) {
-    // Ensure you have CloudinaryService imported in this file
     const newUploadedImages = await CloudinaryService.uploadMultipleImages(req.files);
-    
     let keptImages = [];
     if (updateData.existingImages) {
       keptImages = Array.isArray(updateData.existingImages) 
@@ -271,8 +279,7 @@ export const updateProperty = asyncHandler(async (req: Request, res: Response, n
     updateData.images = [...keptImages, ...newUploadedImages];
   }
 
-  // Pass the updated payload to your service layer
-  const property = await PropertyService.updateProperty(req.params.id as string, updateData);
+  const property = await PropertyService.updateProperty(propertyId, updateData);
 
   if (!property) {
     return next(new AppError('No property found with that ID', 404));
@@ -284,23 +291,18 @@ export const updateProperty = asyncHandler(async (req: Request, res: Response, n
   });
 });
 
-// Get incoming bookings for properties owned by the landlord
 export const getLandlordBookings = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // 1. Safely extract and stringify the verified user ID from the request
   const userId = req.user?._id?.toString();
 
   if (!userId) {
     return next(new AppError('Authentication context missing.', 401));
   }
 
-  // 2. Pass the clean string value to the ownerId query mapping
   const landlordProperties = await Property.find({ ownerId: userId }).select('_id');
   const propertyIds = landlordProperties.map((p) => p._id);
 
-  // 3. Find all reservations associated with those property IDs
   const bookings = await Reservation.find({ propertyId: { $in: propertyIds } })
     .populate('userId', 'firstName lastName email phoneNumber')
-    // CRITICAL FIX: Added 'images' to the selection projection
     .populate('propertyId', 'title category address images') 
     .sort('-createdAt');
 
@@ -311,12 +313,15 @@ export const getLandlordBookings = asyncHandler(async (req: Request, res: Respon
   });
 });
 
-
-
-
 export const checkHotelRoomAvailability = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const { hotelId, roomTypeId } = req.params;
+  // 💡 FIX: Explicitly cast to strings
+  const hotelId = req.params.hotelId as string;
+  const roomTypeId = req.params.roomTypeId as string;
   const { checkIn, checkOut } = req.query;
+
+  if (!hotelId || !mongoose.Types.ObjectId.isValid(hotelId)) {
+    return next(new AppError('Invalid hotel ID format.', 400));
+  }
 
   if (!checkIn || !checkOut) {
     return next(new AppError('Check-in and check-out dates are required.', 400));
@@ -325,7 +330,6 @@ export const checkHotelRoomAvailability = asyncHandler(async (req: Request, res:
   const startDate = new Date(checkIn as string);
   const endDate = new Date(checkOut as string);
 
-  // 1. Validate Hotel and Room Type
   const hotel = await Property.findById(hotelId);
   if (!hotel || hotel.category !== 'HOTEL') {
     return next(new AppError('Hotel not found.', 404));
@@ -336,8 +340,6 @@ export const checkHotelRoomAvailability = asyncHandler(async (req: Request, res:
     return next(new AppError('Room type not found in this hotel.', 404));
   }
 
-  // 2. Count overlapping ACTIVE reservations for this specific room
-
   const filter: any = {
     reservationStatus: 'ACTIVE',
     $and: [
@@ -346,21 +348,15 @@ export const checkHotelRoomAvailability = asyncHandler(async (req: Request, res:
     ]
   };
 
-  // 2. Handle propertyId safely (handling both strings and arrays of strings)
   if (hotelId) {
     filter.propertyId = Array.isArray(hotelId) ? { $in: hotelId } : hotelId;
   }
 
-  // 3. Handle roomTypeId safely
   if (roomTypeId) {
     filter.roomTypeId = Array.isArray(roomTypeId) ? { $in: roomTypeId } : roomTypeId;
   }
 
-  // 4. Run the query
   const overlappingReservationsCount = await Reservation.countDocuments(filter);
-
-
-  // 3. Calculate remaining inventory
   const availableRoomsLeft = roomType.totalInventory - overlappingReservationsCount;
   const isAvailable = availableRoomsLeft > 0;
 
@@ -376,13 +372,9 @@ export const checkHotelRoomAvailability = asyncHandler(async (req: Request, res:
   });
 });
 
-// GET ALL HOTELS
-
 export const getHotels = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // Combine Express query parameters with our strict Hotel category condition
   const queryObj = { ...req.query, category: 'HOTEL' };
   
-  // 'as any' safely tells TypeScript to step aside for this MongoDB operation
   const hotels = await Property.find(queryObj as any)
     .sort('-createdAt')
     .select('-__v');
@@ -394,32 +386,39 @@ export const getHotels = asyncHandler(async (req: Request, res: Response, next: 
   });
 });
 
-// GET SINGLE HOTEL BY ID
 export const getHotel = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const hotelId = req.params.id;
+  // 💡 FIX: Explicitly cast to string
+  const hotelId = req.params.id as string;
 
-  // Find by ID but guarantee it is actually a hotel
-  // The 'as any' bypasses the rigid exactOptionalPropertyTypes validation block
+  if (!hotelId || !mongoose.Types.ObjectId.isValid(hotelId)) {
+    return next(new AppError('Invalid hotel ID format.', 400));
+  }
+
   const hotel = await Property.findOne({ _id: hotelId, category: 'HOTEL' } as any)
-    .populate('ownerId', 'firstName lastName email phoneNumber')
+    .populate('ownerId', 'firstName lastName profilePicture')
     .select('-__v');
 
   if (!hotel) {
     return next(new AppError('Hotel not found or it belongs to a different category', 404));
   }
 
+  const sanitizedHotel = hotel.toObject();
+  if (sanitizedHotel.bookedDates) {
+    sanitizedHotel.bookedDates = sanitizedHotel.bookedDates.map((booking: any) => ({
+      startDate: booking.startDate,
+      endDate: booking.endDate
+    })) as any;
+  }
+
   res.status(200).json({
     status: 'success',
-    data: { hotel }
+    data: { hotel: sanitizedHotel }
   });
 });
 
-
-// Get hotel bookings for the logged-in landlord
 export const getLandlordHotelBookings = asyncHandler(async (req: Request, res: Response) => {
   const landlordId = (req as any).user._id; 
 
-  // 1. Find all properties owned by this landlord that are category 'HOTEL'
   const hotelProperties = await Property.find({ 
     ownerId: landlordId, 
     category: 'HOTEL' 
@@ -427,7 +426,6 @@ export const getLandlordHotelBookings = asyncHandler(async (req: Request, res: R
   
   const hotelPropertyIds = hotelProperties.map(p => p._id);
 
-  // 2. Find reservations tied to these hotels
   const bookings = await Reservation.find({ 
     propertyId: { $in: hotelPropertyIds } 
   })
@@ -442,10 +440,15 @@ export const getLandlordHotelBookings = asyncHandler(async (req: Request, res: R
   });
 });
 
-// Landlord confirms guest check-in for a hotel room
 export const confirmHotelCheckIn = asyncHandler(async (req: Request, res: Response) => {
-  const { id } = req.params; 
+  // 💡 FIX: Explicitly cast to string
+  const id = req.params.id as string; 
   
+  if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+    res.status(400);
+    throw new Error('Invalid reservation ID format.');
+  }
+
   const reservation = await Reservation.findById(id);
   
   if (!reservation) {
@@ -453,10 +456,8 @@ export const confirmHotelCheckIn = asyncHandler(async (req: Request, res: Respon
     throw new Error('Reservation not found');
   }
 
-  // Update using the exact field from Reservation.ts
   reservation.checkInConfirmedByLandlord = true;
 
-  // If guest also confirmed, release funds to the landlord using the schema enum
   if (reservation.checkInConfirmedByGuest) {
     reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
   }
@@ -470,7 +471,6 @@ export const confirmHotelCheckIn = asyncHandler(async (req: Request, res: Respon
   });
 });
 
-// Get all raw hotel properties for a specific landlord
 export const getLandlordHotels = asyncHandler(async (req: Request, res: Response) => {
   const landlordId = (req as any).user._id;
 
@@ -486,11 +486,9 @@ export const getLandlordHotels = asyncHandler(async (req: Request, res: Response
   });
 });
 
-// --- GUEST: Fetch their hotel bookings ---
 export const getGuestHotelBookings = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user?._id;
 
-  // 1. Guard clause to handle undefined/unauthenticated users
   if (!userId) {
     res.status(401).json({
       status: 'fail',
@@ -499,7 +497,6 @@ export const getGuestHotelBookings = asyncHandler(async (req: Request, res: Resp
     return;
   }
 
-  // 2. TypeScript is now happy because userId is strictly guaranteed to exist
   const bookings = await Reservation.find({
     userId: userId, 
     type: 'HOTEL' 
@@ -513,23 +510,19 @@ export const getGuestHotelBookings = asyncHandler(async (req: Request, res: Resp
   });
 });
 
-
-// --- GUEST: Confirm Hotel Check-in ---
 export const guestConfirmHotelCheckIn = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const { id } = req.params;
+  // 💡 FIX: Explicitly cast to string
+  const id = req.params.id as string;
   const userId = req.user?._id;
 
-  // 1. Guard check for missing user context
   if (!userId) {
     return next(new AppError('Unauthorized access', 401));
   }
 
-  // 2. Guard check to ensure id is a valid single string
-  if (!id || typeof id !== 'string') {
+  if (!id || !mongoose.Types.ObjectId.isValid(id)) {
     return next(new AppError('Invalid reservation ID format', 400));
   }
   
-  // TypeScript is now 100% sure both variables are defined and compatible
   const reservation = await Reservation.findOne({ 
     _id: id, 
     userId: userId 
@@ -539,10 +532,8 @@ export const guestConfirmHotelCheckIn = asyncHandler(async (req: Request, res: R
     return next(new AppError('Reservation not found or you do not have permission', 404));
   }
 
-  // Guest confirms they have arrived
   reservation.checkInConfirmedByGuest = true;
 
-  // If landlord already confirmed, trigger the escrow release
   if (reservation.checkInConfirmedByLandlord) {
     reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
   }
@@ -555,4 +546,3 @@ export const guestConfirmHotelCheckIn = asyncHandler(async (req: Request, res: R
     data: { reservation }
   });
 });
-

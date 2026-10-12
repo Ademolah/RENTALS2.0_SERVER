@@ -1,35 +1,152 @@
 import { Request, Response, NextFunction } from 'express';
-import {EmailService } from '../services/email.service'
+import mongoose from 'mongoose';
+import { EmailService } from '../services/email.service';
 import { PaystackService } from '../services/paystack.service.js';
 import { Reservation } from '../models/Reservation.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 import { Property } from '../models/Property.js';
 import { CarReservation } from '../models/CarReservation.js';
-import { Car } from '../models/Car.js'
+import { Car } from '../models/Car.js';
 import { User } from '../models/User.js';
 
+/**
+ * Initiates a booking transaction with SERVER-SIDE price verification
+ * and mobile app callback URL support.
+ */
 export const initiateBooking = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // Added bookingType and roomId to the incoming request payload
-  const { propertyId, roomId, checkInDate, checkOutDate, guestsCount, totalAmount, bookingType = 'PROPERTY' } = req.body;
+  const { 
+    propertyId, 
+    carId, 
+    roomId, 
+    checkInDate, 
+    checkOutDate, 
+    guestsCount = 1, 
+    bookingType = 'PROPERTY',
+    withChauffeur = false,
+    callbackUrl 
+  } = req.body;
+
   const user = req.user as any; 
 
-  // Push the new fields into Paystack's metadata so the webhook receives them
+  if (!user || !user.email) {
+    return next(new AppError('User authentication context missing.', 401));
+  }
+
+  // --- 1. DATE VALIDATION & DURATION CALCULATION ---
+  if (!checkInDate || !checkOutDate) {
+    return next(new AppError('Please provide valid check-in and check-out dates.', 400));
+  }
+
+  const start = new Date(checkInDate);
+  const end = new Date(checkOutDate);
+
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    return next(new AppError('Invalid date format provided.', 400));
+  }
+
+  if (start >= end) {
+    return next(new AppError('Check-out date must be after check-in date.', 400));
+  }
+
+  const diffTime = Math.abs(end.getTime() - start.getTime());
+  const calculatedNights = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+
+  // --- 2. SERVER-SIDE PRICE CALCULATION (SECURITY FIX) ---
+  let verifiedTotalAmount = 0;
+  const targetAssetId = propertyId || carId;
+
+  if (!targetAssetId || !mongoose.Types.ObjectId.isValid(targetAssetId)) {
+    return next(new AppError('Invalid or missing asset ID.', 400));
+  }
+
+  switch (bookingType) {
+    case 'PROPERTY': {
+      const property = await Property.findById(targetAssetId);
+      if (!property || !(property as any).isAvailable) {
+        return next(new AppError('This property is not available for booking.', 404));
+      }
+      const pricePerNight = (property as any).pricePerNight || (property as any).startingPrice || 0;
+      verifiedTotalAmount = pricePerNight * calculatedNights;
+      break;
+    }
+
+    case 'HOTEL': {
+      if (!roomId || !mongoose.Types.ObjectId.isValid(roomId)) {
+        return next(new AppError('A valid room type selection is required for hotel bookings.', 400));
+      }
+      const hotel = await Property.findById(targetAssetId);
+      if (!hotel || !(hotel as any).isAvailable) {
+        return next(new AppError('This hotel is currently unavailable.', 404));
+      }
+
+      // 💡 FIX 3: Cast hotel to any to safely access nested array IDs
+      const room = (hotel as any).roomTypes?.find((r: any) => r._id?.toString() === roomId.toString());
+      if (!room) {
+        return next(new AppError('Selected hotel room type was not found.', 404));
+      }
+
+      verifiedTotalAmount = room.pricePerNight * calculatedNights;
+      break;
+    }
+
+    case 'CAR': {
+      const car = await Car.findById(targetAssetId);
+      if (!car || !(car as any).isAvailable) {
+        return next(new AppError('This vehicle is currently unavailable for hire.', 404));
+      }
+
+      // 💡 FIX 1: Safely cast car to any to access price fields missing from TS definitions
+      const dailyRate = (car as any).pricePerDay || (car as any).pricePerNight || 0;
+      let carCost = dailyRate * calculatedNights;
+
+      if (withChauffeur) {
+        carCost += (25000 * calculatedNights);
+      }
+
+      verifiedTotalAmount = carCost;
+      break;
+    }
+
+    case 'VIP': {
+      const vipVenue = await Property.findById(targetAssetId);
+      if (!vipVenue || !(vipVenue as any).isAvailable) {
+        return next(new AppError('This VIP venue is currently unavailable.', 404));
+      }
+
+      const basePrice = (vipVenue as any).startingPrice || (vipVenue as any).pricePerNight || 0;
+      verifiedTotalAmount = basePrice * calculatedNights;
+      break;
+    }
+
+    default:
+      return next(new AppError(`Unsupported booking type: ${bookingType}`, 400));
+  }
+
+  if (verifiedTotalAmount <= 0) {
+    return next(new AppError('Calculated booking amount is invalid.', 400));
+  }
+
+  // --- 3. PAYSTACK METADATA & MOBILE DEEP-LINKING ---
   const metadata = {
+    callback_url: callbackUrl || undefined, // Paystack standard redirect
     custom_fields: [
-      { display_name: "Property ID", variable_name: "propertyId", value: propertyId },
-      { display_name: "Room ID", variable_name: "roomId", value: roomId || "" },
+      { display_name: "Property/Asset ID", variable_name: "propertyId", value: targetAssetId.toString() },
+      { display_name: "Room ID", variable_name: "roomId", value: roomId ? roomId.toString() : "" },
       { display_name: "User ID", variable_name: "userId", value: user._id.toString() },
       { display_name: "Check In", variable_name: "checkInDate", value: checkInDate },
       { display_name: "Check Out", variable_name: "checkOutDate", value: checkOutDate },
       { display_name: "Guests", variable_name: "guestsCount", value: guestsCount.toString() },
-      { display_name: "Booking Type", variable_name: "bookingType", value: bookingType }
+      { display_name: "Booking Type", variable_name: "bookingType", value: bookingType },
+      { display_name: "Chauffeur Included", variable_name: "withChauffeur", value: withChauffeur ? "true" : "false" },
+      { display_name: "Duration (Nights/Days)", variable_name: "calculatedNights", value: calculatedNights.toString() },
+      { display_name: "Client Callback URL", variable_name: "callbackUrl", value: callbackUrl || "" }
     ]
   };
 
   const paystackData = await PaystackService.initializeTransaction(
     user.email,
-    totalAmount,
+    verifiedTotalAmount,
     metadata
   );
 
@@ -38,13 +155,15 @@ export const initiateBooking = asyncHandler(async (req: Request, res: Response, 
     message: 'Payment initialization successful',
     data: {
       checkoutUrl: paystackData.authorization_url,
+      verifiedAmount: verifiedTotalAmount,
+      durationDays: calculatedNights
     }
   });
 });
 
 
 /**
- * Webhook Endpoint
+ * Webhook Endpoint - Real-time Payment Verification & Escrow Locking
  */
 export const paystackWebhook = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   res.status(200).send('Webhook received');
@@ -56,9 +175,6 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
 
   const event = req.body;
 
-  // ==========================================
-  // EVENT 1: GUEST PAYMENT SUCCESS (INCOMING)
-  // ==========================================
   if (event.event === 'charge.success') {
     const reference = event.data.reference;
     const txData = await PaystackService.verifyTransaction(reference);
@@ -73,7 +189,6 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
       const bookingType = metadata.bookingType || 'PROPERTY'; 
 
       try {
-        // Variables to collect for the unified email trigger
         let assetTitle = '';
         let host: any = null;
         let datesOrTime = '';
@@ -81,6 +196,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
 
         switch (bookingType) {
           case 'PROPERTY': {
+            // 💡 FIX 2: Added 'as any' to bypass the TS interface limits for escrowStatus
             const newReservation = await Reservation.create({
               userId: metadata.userId,
               propertyId: metadata.propertyId,
@@ -90,8 +206,9 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
               guestsCount: Number(metadata.guestsCount),
               totalAmount: txData.amount / 100, 
               paystackReference: reference,
-              paymentStatus: 'SUCCESS'
-            });
+              paymentStatus: 'SUCCESS',
+              escrowStatus: 'HELD'
+            } as any);
 
             const property = await Property.findByIdAndUpdate(metadata.propertyId, {
               $push: {
@@ -99,7 +216,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
                   startDate: new Date(metadata.checkInDate),
                   endDate: new Date(metadata.checkOutDate),
                   reservationId: newReservation._id
-                }
+                } as any
               }
             }).populate('ownerId');
 
@@ -136,13 +253,11 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
               }
             }).populate('ownerId');
             
-            // 💡 NEW: Dynamically find the specific room booked using the metadata.roomId
-            const bookedRoom = property?.roomTypes?.find((r: any) => r._id.toString() === String(metadata.roomId));
-            const exactRoomName = bookedRoom ? bookedRoom.name : 'Suite';
+            // 💡 FIX 3: Cast property to any to avoid never[] ID lookup issues
+            const bookedRoom = (property as any)?.roomTypes?.find((r: any) => r._id?.toString() === String(metadata.roomId));
+            const exactRoomName = bookedRoom ? bookedRoom.name : 'Hotel Suite';
 
-            // 💡 NEW: Append the exact room name to the assetTitle so it appears perfectly in the email
-            assetTitle = property?.title ? `${property.title} - ${exactRoomName}` : `Hotel ${exactRoomName}`;
-            
+            assetTitle = exactRoomName;
             host = property?.ownerId;
             datesOrTime = `${new Date(metadata.checkInDate).toLocaleDateString()} to ${new Date(metadata.checkOutDate).toLocaleDateString()}`;
             console.log(`✅ [Webhook] Hotel Room (${exactRoomName}) secured & Escrow Held (Ref: ${reference})`);
@@ -154,7 +269,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
             
             if (reservation) {
               reservation.paymentStatus = 'SUCCESS';
-              reservation.escrowStatus = 'HELD'; 
+              (reservation as any).escrowStatus = 'HELD'; 
               reservation.paystackReference = reference;
               reservation.reservationStatus = 'ACTIVE'; 
               await reservation.save();
@@ -165,7 +280,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
                     startDate: reservation.pickupTime,
                     endDate: reservation.dropoffTime,
                     reservationId: reservation._id
-                  }
+                  } as any
                 }
               }).populate('ownerId');
               
@@ -181,6 +296,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
             const newVipReservation: any = await Reservation.create({
               userId: metadata.userId,
               propertyId: metadata.propertyId,
+              category: 'VIP',
               checkInDate: new Date(metadata.checkInDate),
               checkOutDate: new Date(new Date(metadata.checkInDate).getTime() + (24 * 60 * 60 * 1000)),
               guestsCount: Number(metadata.guestsCount),
@@ -211,8 +327,6 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
             console.warn(`⚠️ [Webhook] Unknown bookingType received: ${bookingType}`);
         }
 
-       
-        // --- NEW: FIRE BOOKING NOTIFICATIONS ---
         if (guest && host) {
           EmailService.sendBookingSuccess({
             guestEmail: guest.email,
@@ -228,7 +342,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
             amount: txData.amount / 100,
             datesOrTime,
             paystackReference: txData.reference
-          }).catch(console.error); // Fire and forget
+          }).catch(console.error);
         }
 
       } catch (dbError) {
@@ -237,24 +351,20 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
     }
   } 
   
-  // ==========================================
-  // EVENT 2: LANDLORD PAYOUT SUCCESS (OUTGOING)
-  // ==========================================
   else if (event.event === 'transfer.success') {
     const transferData = event.data;
     const bookingId = transferData.reference; 
 
     try {
       let reservation: any = await Reservation.findById(bookingId);
-      let isCar = false;
       
       if (!reservation) {
         reservation = await CarReservation.findById(bookingId);
-        isCar = true;
       }
 
       if (reservation) {
         reservation.reservationStatus = 'COMPLETED'; 
+        reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
         await reservation.save();
         console.log(`✅ [Webhook] Transfer SUCCESS for Booking: ${bookingId}. Funds delivered.`);
       }
@@ -263,9 +373,6 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
     }
   } 
   
-  // ==========================================
-  // EVENT 3: LANDLORD PAYOUT FAILED (BOUNCED)
-  // ==========================================
   else if (event.event === 'transfer.failed' || event.event === 'transfer.reversed') {
     const transferData = event.data;
     const bookingId = transferData.reference;
@@ -319,11 +426,16 @@ export const getMyBookings = asyncHandler(async (req: Request, res: Response, ne
   });
 });
 
-
 export const confirmCheckIn = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const { reservationId } = req.params;
+  // 💡 FIX: Explicitly enforce the type as a single string to satisfy TypeScript
+  const reservationId = req.params.reservationId as string;
   const userId = req.user?._id?.toString();
   const userRole = req.user?.role;
+
+  // 💡 FIX: Added typeof check so Mongoose is guaranteed to receive a string
+  if (!reservationId || typeof reservationId !== 'string' || !mongoose.Types.ObjectId.isValid(reservationId)) {
+    return next(new AppError('Invalid reservation ID provided.', 400));
+  }
 
   const reservation = await Reservation.findById(reservationId).populate('propertyId');
   if (!reservation) {
@@ -338,7 +450,7 @@ export const confirmCheckIn = asyncHandler(async (req: Request, res: Response, n
     updated = true;
   }
 
-  if (property.ownerId.toString() === userId || userRole === 'ADMIN') {
+  if (property?.ownerId?.toString() === userId || userRole === 'ADMIN') {
     reservation.checkInConfirmedByLandlord = true;
     updated = true;
   }
@@ -348,7 +460,7 @@ export const confirmCheckIn = asyncHandler(async (req: Request, res: Response, n
   }
 
   if (reservation.checkInConfirmedByGuest && reservation.checkInConfirmedByLandlord) {
-    if (!reservation.isRentalsProperty && reservation.payoutStatus === 'HELD_IN_ESCROW') {
+    if (!(reservation as any).isRentalsProperty && reservation.payoutStatus === 'HELD_IN_ESCROW') {
       reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
       console.log(`[ESCROW RELEASED] Booking ${reservation._id} funds authorized for payout.`);
     }

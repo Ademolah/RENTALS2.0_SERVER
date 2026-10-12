@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import { Car } from '../models/Car.js';
 import { CarService } from '../services/car.service.js';
 import { PaystackService } from '../services/paystack.service.js';
@@ -6,10 +7,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 import { CloudinaryService } from '../services/cloudinary.service.js';
 import { CarReservation } from '../models/CarReservation.js';
-import {EmailService} from '../services/email.service.js';
-
-
-// Add this to src/controllers/car.controller.ts
+import { EmailService } from '../services/email.service.js';
 
 export const createCar = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const {
@@ -26,20 +24,17 @@ export const createCar = asyncHandler(async (req: Request, res: Response, next: 
     features,
   } = req.body;
 
-  // 1. Handle File Uploads via your existing Streaming Service
   const files = req.files as Express.Multer.File[];
   if (!files || files.length === 0) {
     return next(new AppError('You must upload at least one image of the vehicle.', 400));
   }
 
-  // Map through the files and pass the specific 'rentals/cars' folder to your service
   const imageUploadPromises = files.map((file) => 
     CloudinaryService.uploadImageBuffer(file.buffer, 'rentals/cars')
   );
   
   const imageUrls = await Promise.all(imageUploadPromises);
 
-  // 2. Parse Form-Data Strings
   let parsedLocation;
   try {
     parsedLocation = typeof location === 'string' ? JSON.parse(location) : location;
@@ -55,7 +50,6 @@ export const createCar = asyncHandler(async (req: Request, res: Response, next: 
     ? features.split(',').map((f) => f.trim()) 
     : features;
 
-  // 3. Create Database Record
   const newCar = await Car.create({
     make,
     carModel,
@@ -83,13 +77,11 @@ export const createCar = asyncHandler(async (req: Request, res: Response, next: 
 export const listCars = asyncHandler(async (req: Request, res: Response) => {
   const { city, category } = req.query;
   
-  // 1. Initialize an empty filter instead of forcing isAvailable: true
   const filter: any = {};
   
   if (city) filter['location.city'] = city;
   if (category) filter.category = category;
 
-  // 2. Add FOMO sorting: Available cars show first, then sorted by newest
   const cars = await Car.find(filter).sort({ isAvailable: -1, createdAt: -1 });
   
   console.log(`[DEBUG BACKEND - listCars]: Fetched ${cars.length} cars. Booked cars: ${cars.filter((c) => !c.isAvailable).length}`);
@@ -97,17 +89,11 @@ export const listCars = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json({ status: 'success', results: cars.length, data: { cars } });
 });
 
-
-
-
 export const listAllCars = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // Extract query parameters for homepage filtering (added checkIn/checkOut for future search)
   const { category, city, minPrice, maxPrice, limit = 10, page = 1, checkIn, checkOut } = req.query;
 
-  // 1. Initialize empty query - do NOT force isAvailable: true by default anymore
   const query: any = {};
 
-  // 2. Future-proofing: If the user searches with specific dates, only show available cars
   if (checkIn || checkOut) {
     query.isAvailable = true;
   }
@@ -123,13 +109,10 @@ export const listAllCars = asyncHandler(async (req: Request, res: Response, next
 
   const skip = (Number(page) - 1) * Number(limit);
 
-  // 3. FOMO Sorting: Available cars first (true = 1, false = 0), then newest cars
   const cars = await Car.find(query)
     .sort({ isAvailable: -1, createdAt: -1 }) 
     .skip(skip)
     .limit(Number(limit));
-
-    console.log(`[DEBUG BACKEND]: Total cars fetched: ${cars.length}. Booked cars count: ${cars.filter((c: any) => c.isAvailable === false).length}`)
 
   const total = await Car.countDocuments(query);
 
@@ -151,6 +134,10 @@ export const initiateCarBooking = asyncHandler(async (req: Request, res: Respons
   const { carId, pickupTime, dropoffTime } = req.body;
   const user = req.user!;
 
+  if (!carId || !mongoose.Types.ObjectId.isValid(carId as string)) {
+    return next(new AppError('Invalid car ID format.', 400));
+  }
+
   const { reservation, totalAmount, paystackReference } = await CarService.createPendingReservation(
     user._id.toString(),
     carId,
@@ -158,24 +145,11 @@ export const initiateCarBooking = asyncHandler(async (req: Request, res: Respons
     dropoffTime
   );
 
-  // Perfectly aligned with the Webhook's expected metadata structure
   const metadataPayload = {
     custom_fields: [
-      {
-        display_name: "Booking Type",
-        variable_name: "bookingType",
-        value: "CAR"
-      },
-      {
-        display_name: "Reservation ID",
-        variable_name: "reservationId",
-        value: reservation._id.toString()
-      },
-      {
-        display_name: "Car ID",
-        variable_name: "carId",
-        value: carId.toString()
-      }
+      { display_name: "Booking Type", variable_name: "bookingType", value: "CAR" },
+      { display_name: "Reservation ID", variable_name: "reservationId", value: reservation._id.toString() },
+      { display_name: "Car ID", variable_name: "carId", value: carId.toString() }
     ]
   };
 
@@ -183,7 +157,7 @@ export const initiateCarBooking = asyncHandler(async (req: Request, res: Respons
     user.email,
     totalAmount,
     metadataPayload,
-    paystackReference // Ensure your PaystackService accepts this parameter if you generate it locally
+    paystackReference 
   );
 
   res.status(201).json({
@@ -196,30 +170,48 @@ export const initiateCarBooking = asyncHandler(async (req: Request, res: Respons
   });
 });
 
-
-// Add this below listCars
-
 export const getCarById = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const car = await Car.findById(req.params.id);
+  const carId = req.params.id as string;
 
-  // Here is exactly where AppError shines in a controller
+  // 💡 FIX 3.4: Catch bad IDs before they crash the server
+  if (!carId || !mongoose.Types.ObjectId.isValid(carId)) {
+    return next(new AppError('Invalid car ID format.', 400));
+  }
+
+  // 💡 FIX 3.3: Exclude sensitive owner info if it gets populated
+  const car = await Car.findById(carId)
+    .populate('ownerId', 'firstName lastName profilePicture')
+    .select('-__v');
+
   if (!car) {
     return next(new AppError('No vehicle found with that ID', 404));
   }
 
+  // Sanitize internal reservation IDs from bookedDates
+  const sanitizedCar = car.toObject();
+  if (sanitizedCar.bookedDates) {
+    sanitizedCar.bookedDates = sanitizedCar.bookedDates.map((booking: any) => ({
+      startDate: booking.startDate,
+      endDate: booking.endDate
+    })) as any;
+  }
+
   res.status(200).json({
     status: 'success',
-    data: { car }
+    data: { car: sanitizedCar }
   });
 });
 
-
 export const confirmCarHandover = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const { reservationId } = req.params;
+  const reservationId = req.params.reservationId as string;
   const userId = req.user!._id.toString();
   const userRole = req.user!.role;
 
-  // SURGICAL FIX: Deep populate to fetch guest and host details for emails
+  // 💡 FIX 3.4: Validate ID
+  if (!reservationId || !mongoose.Types.ObjectId.isValid(reservationId)) {
+    return next(new AppError('Invalid reservation ID format.', 400));
+  }
+
   const reservation = await CarReservation.findById(reservationId)
     .populate('userId')
     .populate({ 
@@ -254,7 +246,6 @@ export const confirmCarHandover = asyncHandler(async (req: Request, res: Respons
     reservation.reservationStatus = 'ACTIVE'; 
     console.log(`[ESCROW RELEASED] Car Booking ${reservation._id} funds authorized for payout.`);
 
-    // --- NEW: FIRE CAR ESCROW NOTIFICATION ---
    EmailService.sendEscrowRelease({
       guestEmail: guest.email,
       guestName: `${guest.firstName || ''} ${guest.lastName || ''}`.trim() || 'Guest',
@@ -269,7 +260,6 @@ export const confirmCarHandover = asyncHandler(async (req: Request, res: Respons
       amount: reservation.totalAmount, 
       datesOrTime: `${new Date(reservation.pickupTime).toLocaleString()} to ${new Date(reservation.dropoffTime).toLocaleString()}`,
       
-      // 💡 THE FIX: Force it to always be a string by providing a fallback
       paystackReference: reservation.paystackReference || 'N/A' 
     }).catch(console.error);
   }
@@ -290,18 +280,15 @@ export const confirmCarHandover = asyncHandler(async (req: Request, res: Respons
 });
 
 export const getMyCarBookings = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // 1. Extract the authenticated user's ID
   const userId = req.user?._id?.toString();
 
   if (!userId) {
     return next(new AppError('Authentication context missing.', 401));
   }
 
-  // 2. Query reservations belonging to this guest
   const bookings = await CarReservation.find({ userId })
     .populate({
       path: 'carId',
-      // Select the critical fields needed for the Guest Dashboard cards
       select: 'make carModel year category location images pricePer12Hours', 
     })
     .sort('-createdAt');
@@ -313,16 +300,13 @@ export const getMyCarBookings = asyncHandler(async (req: Request, res: Response,
   });
 });
 
-// --- GET ALL CARS LISTED BY LOGGED-IN LANDLORD ---
 export const getLandlordCars = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const userId = req.user?._id?.toString();
 
-  // 1. Guard clause: Stop execution if the user is not authenticated
   if (!userId) {
     return next(new AppError('You must be logged in to view your cars.', 401));
   }
   
-  // 2. userId is now guaranteed to be a string, resolving the TypeScript error
   const cars = await Car.find({ ownerId: userId }).sort('-createdAt');
 
   res.status(200).json({
@@ -332,34 +316,35 @@ export const getLandlordCars = asyncHandler(async (req: Request, res: Response, 
   });
 });
 
-
 export const updateCar = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const userId = req.user?._id?.toString();
+  const carId = req.params.id as string;
 
   if (!userId) {
     return next(new AppError('You must be logged in to perform this action.', 401));
   }
+
+  // 💡 FIX 3.4: Validate ID
+  if (!carId || !mongoose.Types.ObjectId.isValid(carId)) {
+    return next(new AppError('Invalid car ID format.', 400));
+  }
   
   let updateData = { ...req.body };
 
-  // 1. Handle new image uploads via Cloudinary if files exist
   if (req.files && Array.isArray(req.files) && req.files.length > 0) {
-    // Assuming you have your Cloudinary service imported
     const newUploadedImages = await CloudinaryService.uploadMultipleImages(req.files);
     
-    // Merge new images with any existing images the frontend sent back
     let keptImages = [];
     if (updateData.existingImages) {
       keptImages = Array.isArray(updateData.existingImages) 
         ? updateData.existingImages 
-        : JSON.parse(updateData.existingImages); // parse if stringified
+        : JSON.parse(updateData.existingImages); 
     }
     updateData.images = [...keptImages, ...newUploadedImages];
   }
 
-  // 2. Execute the update
   const car = await Car.findOneAndUpdate(
-    { _id: req.params.id, ownerId: userId } as any, 
+    { _id: carId, ownerId: userId } as any, 
     updateData, 
     { new: true, runValidators: true }
   );
@@ -371,24 +356,18 @@ export const updateCar = asyncHandler(async (req: Request, res: Response, next: 
   res.status(200).json({ status: 'success', data: { car } });
 });
 
-
-
-// --- GET INCOMING BOOKINGS FOR LANDLORD'S CARS ---
 export const getLandlordCarBookings = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const userId = req.user?._id?.toString();
 
-  // 1. Guard clause: Ensure the landlord is authenticated
   if (!userId) {
     return next(new AppError('You must be logged in to view your bookings.', 401));
   }
 
-  // 2. Find all cars owned by this landlord (userId is now guaranteed to be a string)
   const landlordCars = await Car.find({ ownerId: userId }).select('_id');
   const carIds = landlordCars.map(c => c._id);
 
-  // 3. Find all reservations associated with those car IDs
   const bookings = await CarReservation.find({ carId: { $in: carIds } })
-    .populate('userId', 'firstName lastName email phoneNumber') // Get guest details
+    .populate('userId', 'firstName lastName email phoneNumber') 
     .populate('carId', 'make carModel year category images')
     .sort('-createdAt');
 
@@ -399,11 +378,14 @@ export const getLandlordCarBookings = asyncHandler(async (req: Request, res: Res
   });
 });
 
-// Add this below getCarById in src/controllers/car.controller.ts
-
 export const checkCarAvailability = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { startDate, endDate } = req.body;
-  const carId = req.params.id;
+  const carId = req.params.id as string;
+
+  // 💡 FIX 3.4: Validate ID
+  if (!carId || !mongoose.Types.ObjectId.isValid(carId)) {
+    return next(new AppError('Invalid car ID format.', 400));
+  }
 
   if (!startDate || !endDate) {
     return next(new AppError('Please provide both startDate and endDate', 400));
@@ -422,7 +404,6 @@ export const checkCarAvailability = asyncHandler(async (req: Request, res: Respo
     return next(new AppError('No vehicle found with that ID', 404));
   }
 
-  // Global Kill-Switch Check
   if (!car.isAvailable) {
     return res.status(200).json({ 
       available: false, 
@@ -430,7 +411,6 @@ export const checkCarAvailability = asyncHandler(async (req: Request, res: Respo
     });
   }
 
-  // Date Overlap Engine
   const hasOverlap = car.bookedDates.some((booking) => {
     const existingStart = new Date(booking.startDate);
     const existingEnd = new Date(booking.endDate);

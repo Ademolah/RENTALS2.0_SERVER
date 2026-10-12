@@ -12,10 +12,10 @@ const ADMIN_EMAIL = 'rentalsafrica@gmail.com';
 interface NotificationPayload {
   guestEmail: string;
   guestName: string;
-  guestPhone?: string; // ADDED
+  guestPhone?: string; 
   hostEmail: string;
   hostName: string;
-  hostPhone?: string;  // ADDED
+  hostPhone?: string;  
   assetTitle: string;
   bookingType: 'SHORTLET' | 'CAR' | 'HOTEL' | 'VIP';
   amount: number;
@@ -29,11 +29,16 @@ interface HostWelcomePayload {
   dashboardUrl: string;
 }
 
-// NEW: Interface for general user registration
 interface UserWelcomePayload {
   to: string;
   firstName: string;
   exploreUrl: string;
+}
+
+export interface PasswordResetPayload {
+  to: string;
+  firstName: string;
+  resetUrl: string;
 }
 
 export class EmailService {
@@ -114,15 +119,14 @@ export class EmailService {
     }
   }
 
-  // --- NEW: USER WELCOME EMAIL DISPATCHER ---
   static async sendUserWelcome(data: UserWelcomePayload) {
     try {
       const html = await render(
         React.createElement(LuxuryEmailTemplate, {
           recipientName: data.firstName,
-          role: 'GUEST', // Default all new registrants to Guest logic
+          role: 'GUEST', 
           eventType: 'USER_WELCOME',
-          dashboardUrl: data.exploreUrl // Reusing the button URL prop
+          dashboardUrl: data.exploreUrl 
         })
       );
 
@@ -136,6 +140,31 @@ export class EmailService {
       console.log(`[Email Service] User Welcome email dispatched to ${data.to}`);
     } catch (error) {
       console.error('[Email Service] Failed to send User Welcome email:', error);
+    }
+  }
+
+  // --- NEW: PASSWORD RESET DISPATCHER ---
+  static async sendPasswordReset(data: PasswordResetPayload) {
+    try {
+      const html = await render(
+        React.createElement(LuxuryEmailTemplate, {
+          recipientName: data.firstName,
+          role: 'GUEST',
+          eventType: 'PASSWORD_RESET',
+          resetUrl: data.resetUrl
+        })
+      );
+
+      await resend.emails.send({
+        from: 'Rentals <noreply@rentalsafrica.com>',
+        to: data.to,
+        subject: 'Rentals Africa Password Reset Request',
+        html: html
+      });
+
+      console.log(`[Email Service] Password Reset email dispatched to ${data.to}`);
+    } catch (error) {
+      console.error('[Email Service] Failed to send Password Reset email:', error);
     }
   }
 }

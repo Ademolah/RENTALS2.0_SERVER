@@ -6,12 +6,13 @@ import {
 interface EmailTemplateProps {
   recipientName: string;
   role: 'GUEST' | 'HOST' | 'ADMIN';
-  eventType: 'BOOKING_SUCCESS' | 'ESCROW_RELEASE' | 'HOST_WELCOME' | 'USER_WELCOME';
+  eventType: 'BOOKING_SUCCESS' | 'ESCROW_RELEASE' | 'HOST_WELCOME' | 'USER_WELCOME' | 'PASSWORD_RESET';
   assetTitle?: string | undefined;
   bookingType?: 'PROPERTY' | 'SHORTLET' | 'CAR' | 'HOTEL' | 'VIP' | undefined; 
   amount?: number | undefined;
   datesOrTime?: string | undefined;
   dashboardUrl?: string | undefined; 
+  resetUrl?: string | undefined; 
   
   guestName?: string | undefined;
   guestEmail?: string | undefined;
@@ -20,7 +21,6 @@ interface EmailTemplateProps {
   hostEmail?: string | undefined;
   hostPhone?: string | undefined;
   
-  // NEW: Payment Reference
   paystackReference?: string | undefined;
 }
 
@@ -33,6 +33,7 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
   amount,
   datesOrTime,
   dashboardUrl,
+  resetUrl,
   guestName,
   guestEmail,
   guestPhone,
@@ -44,8 +45,10 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
   const isBooking = eventType === 'BOOKING_SUCCESS';
   const isHostWelcome = eventType === 'HOST_WELCOME';
   const isUserWelcome = eventType === 'USER_WELCOME';
+  const isPasswordReset = eventType === 'PASSWORD_RESET';
   
   const getHeadline = () => {
+    if (isPasswordReset) return 'Password Reset Request.';
     if (isHostWelcome) return 'Welcome to the portfolio.';
     if (isUserWelcome) return 'Welcome to Rentals Africa.';
     if (isBooking) {
@@ -71,6 +74,8 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
   };
 
   const getSubtext = () => {
+    if (isPasswordReset) return 'We received a request to reset your Rentals Africa account password. Click the secure button below to create a new password. This link will safely expire in 15 minutes.';
+    
     if (isHostWelcome) return 'Your host application has been reviewed and approved. Your account is now verified, granting you full access to list properties, manage reservations, and curate exceptional experiences for our guests.';
     
     if (isUserWelcome) return 'Your account has been successfully created. You can now explore and reserve exclusive luxury shortlets, vehicles, hotels, and VIP experiences across the continent.';
@@ -101,7 +106,7 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
             <Heading style={headline}>{getHeadline()}</Heading>
             <Text style={subtext}>{getSubtext()}</Text>
 
-            {!isHostWelcome && !isUserWelcome ? (
+            {!isHostWelcome && !isUserWelcome && !isPasswordReset ? (
               <>
                 <Section style={detailsCard}>
                   <Row style={detailRow}>
@@ -124,7 +129,6 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
                     <Column><Text style={amountText}>₦{amount?.toLocaleString()}</Text></Column>
                   </Row>
 
-                  {/* NEW: Display Paystack Reference for Guest and Admin ONLY */}
                   {paystackReference && (role === 'GUEST' || role === 'ADMIN') && (
                     <>
                       <Hr style={divider} />
@@ -158,8 +162,8 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
               </>
             ) : (
               <Section style={{ textAlign: 'left' }}>
-                <a href={dashboardUrl} style={primaryButton}>
-                  {isHostWelcome ? 'Access Host Dashboard' : 'Explore Portfolio'}
+                <a href={isPasswordReset ? resetUrl : dashboardUrl} style={primaryButton}>
+                  {isHostWelcome ? 'Access Host Dashboard' : isPasswordReset ? 'Reset Password' : 'Explore Portfolio'}
                 </a>
               </Section>
             )}
@@ -181,7 +185,6 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
   );
 };
 
-// --- STYLES ---
 const main = { backgroundColor: '#ffffff', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif' };
 const container = { margin: '40px auto', maxWidth: '600px', border: '1px solid #e5e5e5', borderRadius: '0px' };
 const header = { padding: '40px 40px 30px', textAlign: 'center' as const, borderBottom: '1px solid #e5e5e5' };
