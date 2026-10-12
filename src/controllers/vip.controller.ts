@@ -293,3 +293,51 @@ export const confirmVipArrival = asyncHandler(async (req: Request, res: Response
     data: { reservation }
   });
 });
+
+// ==========================================
+// 8. DELETE VIP ESTABLISHMENT (Audit Fix)
+// ==========================================
+export const deleteVipEstablishment = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { id } = req.params;
+
+  // 1. Ensure 'id' is a single string and a valid ObjectId
+  if (typeof id !== 'string' || !Types.ObjectId.isValid(id)) {
+    return next(new AppError('Invalid or missing ID format', 400));
+  }
+
+  const establishment = await Property.findOne({ 
+    _id: new Types.ObjectId(id), 
+    category: 'VIP RESERVATION' 
+  });
+  
+  if (!establishment) {
+    return next(new AppError('VIP Establishment not found', 404));
+  }
+
+  // 2. Ensure only the owner or an admin can delete
+  const isOwner = establishment.ownerId.toString() === req.user?._id?.toString();
+  const isAdmin = req.user?.role === 'ADMIN';
+
+  if (!isOwner && !isAdmin) {
+    return next(new AppError('You do not have permission to delete this listing.', 403));
+  }
+
+  // 3. Prevent deletion if there are ACTIVE future bookings
+  const activeBookingsCount = await Reservation.countDocuments({
+    propertyId: id,
+    reservationStatus: 'ACTIVE',
+    checkOutDate: { $gte: new Date() }
+  });
+
+  if (activeBookingsCount > 0) {
+    return next(new AppError('Cannot delete this venue. It currently has active future reservations.', 400));
+  }
+
+  // 4. Safely delete the record
+  await Property.findByIdAndDelete(id);
+
+  res.status(204).json({
+    status: 'success',
+    data: null
+  });
+});

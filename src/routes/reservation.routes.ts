@@ -3,7 +3,8 @@ import {
   initiateBooking, 
   paystackWebhook, 
   getMyBookings, 
-  confirmCheckIn 
+  confirmCheckIn, 
+  cancelBooking
 } from '../controllers/reservation.controller.js';
 import { protect } from '../middlewares/auth.middleware.js';
 
@@ -17,5 +18,6 @@ router.use(protect);
 router.post('/book', initiateBooking);
 router.get('/my-bookings', getMyBookings);
 router.patch('/:reservationId/confirm-checkin', confirmCheckIn);
+router.post('/:reservationId/cancel', protect, cancelBooking);
 
 export default router;

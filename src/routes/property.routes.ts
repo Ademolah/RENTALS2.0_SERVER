@@ -5,7 +5,8 @@ import {
   getProperty,  
   updateProperty,
   checkPropertyAvailability,
-  getLandlordBookings 
+  getLandlordBookings, 
+  deleteProperty
 } from '../controllers/property.controller.js';
 import { protect, restrictTo } from '../middlewares/auth.middleware.js';
 import { upload } from '../middlewares/upload.middleware.js';
@@ -21,5 +22,6 @@ router.get('/landlord-bookings', protect, restrictTo('LANDLORD', 'ADMIN'), getLa
 
 router.get('/:id', getProperty);
 router.patch('/:id', protect, restrictTo('ADMIN', 'LANDLORD'),upload.array('images', 10), updateProperty);
+router.delete('/:id', protect, deleteProperty);
 
 export default router;

@@ -2,6 +2,7 @@ import express from 'express';
 import { 
   confirmVipArrival,
   createVipEstablishment, 
+  deleteVipEstablishment, 
   getLandlordVipEstablishments, 
   getVipEstablishmentById, 
   getVipEstablishments, 
@@ -51,5 +52,9 @@ router.put(
   upload.array('images', 10), 
   updateVipEstablishment
 );
+
+router.delete('/:id', protect, deleteVipEstablishment);
+
+
 
 export default router;

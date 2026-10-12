@@ -546,3 +546,45 @@ export const guestConfirmHotelCheckIn = asyncHandler(async (req: Request, res: R
     data: { reservation }
   });
 });
+
+export const deleteProperty = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const propertyId = req.params.id as string;
+
+  // 1. Audit Item 3.4: Strict ID validation to prevent 500 crashes
+  if (!propertyId || !mongoose.Types.ObjectId.isValid(propertyId)) {
+    return next(new AppError('Invalid property ID format.', 400));
+  }
+
+  const property = await Property.findById(propertyId);
+  
+  if (!property) {
+    return next(new AppError('No property found with that ID', 404));
+  }
+
+  // 2. Authorization check
+  const isAdmin = req.user?.role === 'ADMIN';
+  const isOwner = property.ownerId?.toString() === req.user?._id?.toString();
+
+  if (!isAdmin && !isOwner) {
+    return next(new AppError('You do not have permission to delete this property.', 403));
+  }
+
+  // 3. Prevent deletion if there are ACTIVE future bookings locking escrow funds
+  const activeBookingsCount = await Reservation.countDocuments({
+    propertyId: propertyId,
+    reservationStatus: 'ACTIVE',
+    checkOutDate: { $gte: new Date() }
+  });
+
+  if (activeBookingsCount > 0) {
+    return next(new AppError('Cannot delete this property. It currently has active future reservations.', 400));
+  }
+
+  // 4. Safe Delete
+  await Property.findByIdAndDelete(propertyId);
+
+  res.status(204).json({
+    status: 'success',
+    data: null
+  });
+});

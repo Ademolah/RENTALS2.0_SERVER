@@ -10,10 +10,6 @@ import { CarReservation } from '../models/CarReservation.js';
 import { Car } from '../models/Car.js';
 import { User } from '../models/User.js';
 
-/**
- * Initiates a booking transaction with SERVER-SIDE price verification
- * and mobile app callback URL support.
- */
 export const initiateBooking = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { 
     propertyId, 
@@ -33,7 +29,6 @@ export const initiateBooking = asyncHandler(async (req: Request, res: Response, 
     return next(new AppError('User authentication context missing.', 401));
   }
 
-  // --- 1. DATE VALIDATION & DURATION CALCULATION ---
   if (!checkInDate || !checkOutDate) {
     return next(new AppError('Please provide valid check-in and check-out dates.', 400));
   }
@@ -52,7 +47,6 @@ export const initiateBooking = asyncHandler(async (req: Request, res: Response, 
   const diffTime = Math.abs(end.getTime() - start.getTime());
   const calculatedNights = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
 
-  // --- 2. SERVER-SIDE PRICE CALCULATION (SECURITY FIX) ---
   let verifiedTotalAmount = 0;
   const targetAssetId = propertyId || carId;
 
@@ -80,7 +74,6 @@ export const initiateBooking = asyncHandler(async (req: Request, res: Response, 
         return next(new AppError('This hotel is currently unavailable.', 404));
       }
 
-      // 💡 FIX 3: Cast hotel to any to safely access nested array IDs
       const room = (hotel as any).roomTypes?.find((r: any) => r._id?.toString() === roomId.toString());
       if (!room) {
         return next(new AppError('Selected hotel room type was not found.', 404));
@@ -96,7 +89,6 @@ export const initiateBooking = asyncHandler(async (req: Request, res: Response, 
         return next(new AppError('This vehicle is currently unavailable for hire.', 404));
       }
 
-      // 💡 FIX 1: Safely cast car to any to access price fields missing from TS definitions
       const dailyRate = (car as any).pricePerDay || (car as any).pricePerNight || 0;
       let carCost = dailyRate * calculatedNights;
 
@@ -127,9 +119,8 @@ export const initiateBooking = asyncHandler(async (req: Request, res: Response, 
     return next(new AppError('Calculated booking amount is invalid.', 400));
   }
 
-  // --- 3. PAYSTACK METADATA & MOBILE DEEP-LINKING ---
   const metadata = {
-    callback_url: callbackUrl || undefined, // Paystack standard redirect
+    callback_url: callbackUrl || undefined, 
     custom_fields: [
       { display_name: "Property/Asset ID", variable_name: "propertyId", value: targetAssetId.toString() },
       { display_name: "Room ID", variable_name: "roomId", value: roomId ? roomId.toString() : "" },
@@ -161,10 +152,6 @@ export const initiateBooking = asyncHandler(async (req: Request, res: Response, 
   });
 });
 
-
-/**
- * Webhook Endpoint - Real-time Payment Verification & Escrow Locking
- */
 export const paystackWebhook = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   res.status(200).send('Webhook received');
 
@@ -196,7 +183,6 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
 
         switch (bookingType) {
           case 'PROPERTY': {
-            // 💡 FIX 2: Added 'as any' to bypass the TS interface limits for escrowStatus
             const newReservation = await Reservation.create({
               userId: metadata.userId,
               propertyId: metadata.propertyId,
@@ -253,7 +239,6 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
               }
             }).populate('ownerId');
             
-            // 💡 FIX 3: Cast property to any to avoid never[] ID lookup issues
             const bookedRoom = (property as any)?.roomTypes?.find((r: any) => r._id?.toString() === String(metadata.roomId));
             const exactRoomName = bookedRoom ? bookedRoom.name : 'Hotel Suite';
 
@@ -390,8 +375,8 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
         reservation.payoutStatus = 'HELD_IN_ESCROW';
         
         if (isCar) {
-          reservation.escrowStatus = 'HELD';
-          reservation.ownerConfirmedHandover = false; 
+          (reservation as any).escrowStatus = 'HELD';
+          (reservation as any).ownerConfirmedHandover = false; 
         } else {
           reservation.checkInConfirmedByLandlord = false; 
         }
@@ -427,12 +412,10 @@ export const getMyBookings = asyncHandler(async (req: Request, res: Response, ne
 });
 
 export const confirmCheckIn = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // 💡 FIX: Explicitly enforce the type as a single string to satisfy TypeScript
   const reservationId = req.params.reservationId as string;
   const userId = req.user?._id?.toString();
   const userRole = req.user?.role;
 
-  // 💡 FIX: Added typeof check so Mongoose is guaranteed to receive a string
   if (!reservationId || typeof reservationId !== 'string' || !mongoose.Types.ObjectId.isValid(reservationId)) {
     return next(new AppError('Invalid reservation ID provided.', 400));
   }
@@ -476,5 +459,77 @@ export const confirmCheckIn = asyncHandler(async (req: Request, res: Response, n
       checkInConfirmedByLandlord: reservation.checkInConfirmedByLandlord,
       payoutStatus: reservation.payoutStatus,
     },
+  });
+});
+
+// --- NEW APP STORE REQUIREMENT: BOOKING CANCELLATIONS ---
+export const cancelBooking = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const reservationId = req.params.reservationId as string;
+  const userId = req.user?._id?.toString();
+  const userRole = req.user?.role;
+
+  if (!reservationId || !mongoose.Types.ObjectId.isValid(reservationId)) {
+    return next(new AppError('Invalid reservation ID provided.', 400));
+  }
+
+  // 1. Dual Lookup: Determine if it's a Property/Hotel/VIP or Car booking
+  let reservation: any = await Reservation.findById(reservationId).populate('propertyId');
+  let isCar = false;
+
+  if (!reservation) {
+    reservation = await CarReservation.findById(reservationId).populate('carId');
+    isCar = true;
+  }
+
+  if (!reservation) {
+    return next(new AppError('Reservation not found', 404));
+  }
+
+  // 2. Authorization Check (Only Guest, Host, or Admin can cancel)
+  const asset = isCar ? reservation.carId : reservation.propertyId;
+  const ownerId = asset?.ownerId?.toString();
+  const guestId = reservation.userId.toString();
+  
+  if (userId !== guestId && userId !== ownerId && userRole !== 'ADMIN') {
+    return next(new AppError('You are not authorized to cancel this booking.', 403));
+  }
+
+  // 3. Logic Gate: Ensure it can actually be cancelled
+  if (reservation.reservationStatus === 'COMPLETED' || reservation.reservationStatus === 'CANCELLED') {
+    return next(new AppError(`Booking cannot be cancelled because it is already ${reservation.reservationStatus}.`, 400));
+  }
+
+  if (reservation.checkInConfirmedByGuest || reservation.checkInConfirmedByLandlord || (reservation as any).guestConfirmedPickup) {
+    return next(new AppError('Booking cannot be cancelled after check-in has been confirmed.', 400));
+  }
+
+  // 4. State Management: Mark as Cancelled and flag for Admin Refund
+  reservation.reservationStatus = 'CANCELLED';
+  
+  if (reservation.paymentStatus === 'SUCCESS') {
+    reservation.payoutStatus = 'REFUND_PENDING';
+    (reservation as any).escrowStatus = 'CANCELLED';
+  }
+
+  await reservation.save();
+
+  // 5. Database Cleanup: Remove the locked dates from the asset to free up inventory
+  if (isCar) {
+    await Car.findByIdAndUpdate(asset._id, {
+      $pull: { bookedDates: { reservationId: reservation._id } } as any
+    });
+  } else {
+    await Property.findByIdAndUpdate(asset._id, {
+      $pull: { bookedDates: { reservationId: reservation._id } } as any
+    });
+  }
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Booking cancelled successfully. If paid, your refund is now processing.',
+    data: {
+      reservationStatus: reservation.reservationStatus,
+      payoutStatus: reservation.payoutStatus
+    }
   });
 });
