@@ -43,6 +43,11 @@ const userSchema = new Schema<IUserDocument>(
         default: false,
       }
     },
+    // Add this inside your User schema definition:
+    pushTokens: {
+      type: [String],
+      default: [],
+    },
     isVerified: { type: Boolean, default: false },
   },
   { timestamps: true }

@@ -72,6 +72,16 @@ export interface ICar {
   updatedAt: Date;
 }
 
+export interface INotification extends Document {
+  userId: mongoose.Types.ObjectId;
+  title: string;
+  body: string;
+  type: 'NEW_BOOKING' | 'PAYMENT' | 'CHECK_IN' | 'PAYOUT' | 'CANCELLATION' | 'HOST_APPROVAL' | 'SYSTEM' | 'PICKUP';
+  relatedId?: mongoose.Types.ObjectId;
+  isRead: boolean;
+  createdAt: Date;
+}
+
 export interface ICarReservation {
   carId: Types.ObjectId;
   userId: Types.ObjectId;
@@ -108,6 +118,7 @@ export interface IUser {
   role: UserRole;
   bankDetails: IBankDetails;
   phoneNumber?: string; 
+  pushTokens: string[];
   isVerified: boolean;
   createdAt: Date;
   updatedAt: Date;

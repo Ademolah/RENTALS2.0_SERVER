@@ -15,6 +15,7 @@ import hostRoutes from './routes/host.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import reviewRoutes from './routes/reviews.routes.js'; 
 import { AppError } from './utils/AppError.js';
+import notificationRoutes from './routes/notification.routes.js';
 
 const app: Application = express();
 
@@ -34,6 +35,7 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 app.use("/api/v1/auth", authRoutes)
+app.use('/api/v1/notifications', notificationRoutes);
 app.use('/api/v1/reviews', reviewRoutes); 
 app.use("/api/v1/admin", adminRoutes) 
 app.use('/api/v1/hosts', hostRoutes);

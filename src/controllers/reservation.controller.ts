@@ -9,6 +9,7 @@ import { Property } from '../models/Property.js';
 import { CarReservation } from '../models/CarReservation.js';
 import { Car } from '../models/Car.js';
 import { User } from '../models/User.js';
+import { NotificationService } from '../services/notification.service.js'; // 💡 INJECTED
 
 export const initiateBooking = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { 
@@ -210,6 +211,17 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
             host = property?.ownerId;
             datesOrTime = `${new Date(metadata.checkInDate).toLocaleDateString()} to ${new Date(metadata.checkOutDate).toLocaleDateString()}`;
             console.log(`✅ [Webhook] Property Reservation created & Dates Locked (Ref: ${reference})`);
+            
+            // 💡 NOTIFICATION INJECTION: Notify Host
+            if (host && guest) {
+              await NotificationService.sendPush(
+                host._id,
+                "New Booking Confirmed! 🎉",
+                `${guest.firstName} booked ${assetTitle} from ${datesOrTime}.`,
+                "NEW_BOOKING",
+                newReservation._id
+              );
+            }
             break;
           }
 
@@ -246,6 +258,17 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
             host = property?.ownerId;
             datesOrTime = `${new Date(metadata.checkInDate).toLocaleDateString()} to ${new Date(metadata.checkOutDate).toLocaleDateString()}`;
             console.log(`✅ [Webhook] Hotel Room (${exactRoomName}) secured & Escrow Held (Ref: ${reference})`);
+            
+            // 💡 NOTIFICATION INJECTION: Notify Host
+            if (host && guest) {
+              await NotificationService.sendPush(
+                host._id,
+                "New Hotel Booking! 🏨",
+                `${guest.firstName} booked ${assetTitle} from ${datesOrTime}.`,
+                "NEW_BOOKING",
+                newHotelReservation._id
+              );
+            }
             break;
           }
 
@@ -273,6 +296,17 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
               host = car?.ownerId;
               datesOrTime = `${new Date(reservation.pickupTime).toLocaleString()} to ${new Date(reservation.dropoffTime).toLocaleString()}`;
               console.log(`✅ [Webhook] Car Reservation secured & Dates Locked (Ref: ${reference})`);
+
+              // 💡 NOTIFICATION INJECTION: Notify Host
+              if (host && guest) {
+                await NotificationService.sendPush(
+                  host._id,
+                  "Vehicle Rented! 🚗",
+                  `${guest.firstName} rented your ${assetTitle} from ${datesOrTime}.`,
+                  "NEW_BOOKING",
+                  reservation._id
+                );
+              }
             }
             break;
           }
@@ -305,6 +339,17 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
             host = property?.ownerId;
             datesOrTime = `${new Date(metadata.checkInDate).toLocaleDateString()} (Arrival: ${metadata.arrivalTime || 'TBD'})`;
             console.log(`✅ [Webhook] VIP Reservation secured & Deposit Escrowed (Ref: ${reference})`);
+
+            // 💡 NOTIFICATION INJECTION: Notify Host
+            if (host && guest) {
+              await NotificationService.sendPush(
+                host._id,
+                "New VIP Reservation! 🍾",
+                `${guest.firstName} secured a reservation at ${assetTitle}.`,
+                "NEW_BOOKING",
+                newVipReservation._id
+              );
+            }
             break;
           }
 
@@ -328,6 +373,14 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
             datesOrTime,
             paystackReference: txData.reference
           }).catch(console.error);
+
+          // 💡 NOTIFICATION INJECTION: Notify Guest of successful payment
+          await NotificationService.sendPush(
+            guest._id,
+            "Payment Successful! ✅",
+            `Your booking for ${assetTitle} is confirmed.`,
+            "PAYMENT"
+          );
         }
 
       } catch (dbError) {
@@ -341,10 +394,13 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
     const bookingId = transferData.reference; 
 
     try {
-      let reservation: any = await Reservation.findById(bookingId);
-      
+      let reservation: any = await Reservation.findById(bookingId).populate('propertyId');
+      let isCar = false;
+      let hostId = null;
+
       if (!reservation) {
-        reservation = await CarReservation.findById(bookingId);
+        reservation = await CarReservation.findById(bookingId).populate('carId');
+        isCar = true;
       }
 
       if (reservation) {
@@ -352,6 +408,23 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
         reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
         await reservation.save();
         console.log(`✅ [Webhook] Transfer SUCCESS for Booking: ${bookingId}. Funds delivered.`);
+
+        // 💡 NOTIFICATION INJECTION: Notify Host of successful payout
+        if (isCar) {
+          hostId = reservation.carId?.ownerId;
+        } else {
+          hostId = reservation.propertyId?.ownerId;
+        }
+
+        if (hostId) {
+          await NotificationService.sendPush(
+            hostId,
+            "Payout Delivered! 💸",
+            "Funds have been successfully transferred to your connected bank account.",
+            "PAYOUT",
+            reservation._id
+          );
+        }
       }
     } catch (dbError) {
       console.error('❌ Webhook Transfer Success DB Error:', dbError);
@@ -363,11 +436,12 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
     const bookingId = transferData.reference;
 
     try {
-      let reservation: any = await Reservation.findById(bookingId);
+      let reservation: any = await Reservation.findById(bookingId).populate('propertyId');
       let isCar = false;
+      let hostId = null;
       
       if (!reservation) {
-        reservation = await CarReservation.findById(bookingId);
+        reservation = await CarReservation.findById(bookingId).populate('carId');
         isCar = true;
       }
 
@@ -377,12 +451,25 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
         if (isCar) {
           (reservation as any).escrowStatus = 'HELD';
           (reservation as any).ownerConfirmedHandover = false; 
+          hostId = reservation.carId?.ownerId;
         } else {
           reservation.checkInConfirmedByLandlord = false; 
+          hostId = reservation.propertyId?.ownerId;
         }
         
         await reservation.save();
         console.error(`❌ [Webhook] Transfer FAILED for Booking: ${bookingId}. Reason: ${transferData.reason}`);
+
+        // 💡 NOTIFICATION INJECTION: Notify Host of failed payout
+        if (hostId) {
+          await NotificationService.sendPush(
+            hostId,
+            "Payout Failed ⚠️",
+            "An attempt to transfer your funds failed. Escrow remains held.",
+            "SYSTEM",
+            reservation._id
+          );
+        }
       }
     } catch (dbError) {
       console.error('❌ Webhook Transfer Failed DB Error:', dbError);
@@ -431,11 +518,31 @@ export const confirmCheckIn = asyncHandler(async (req: Request, res: Response, n
   if (reservation.userId.toString() === userId) {
     reservation.checkInConfirmedByGuest = true;
     updated = true;
+
+    // 💡 NOTIFICATION INJECTION: Notify Host that Guest confirmed
+    if (property?.ownerId) {
+      await NotificationService.sendPush(
+        property.ownerId,
+        "Guest Confirmed Check-In",
+        `The guest at ${property.title} has confirmed their arrival.`,
+        "CHECK_IN",
+        reservation._id
+      );
+    }
   }
 
   if (property?.ownerId?.toString() === userId || userRole === 'ADMIN') {
     reservation.checkInConfirmedByLandlord = true;
     updated = true;
+
+    // 💡 NOTIFICATION INJECTION: Notify Guest that Host confirmed
+    await NotificationService.sendPush(
+      reservation.userId,
+      "Host Confirmed Check-In",
+      `The host at ${property.title} has verified your check-in.`,
+      "CHECK_IN",
+      reservation._id
+    );
   }
 
   if (!updated) {
@@ -446,6 +553,17 @@ export const confirmCheckIn = asyncHandler(async (req: Request, res: Response, n
     if (!(reservation as any).isRentalsProperty && reservation.payoutStatus === 'HELD_IN_ESCROW') {
       reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
       console.log(`[ESCROW RELEASED] Booking ${reservation._id} funds authorized for payout.`);
+
+      // 💡 NOTIFICATION INJECTION: Notify Host that Escrow is released
+      if (property?.ownerId) {
+        await NotificationService.sendPush(
+          property.ownerId,
+          "Payout Authorized 💰",
+          `Check-in is complete at ${property.title}. Funds have been authorized for payout.`,
+          "PAYOUT",
+          reservation._id
+        );
+      }
     }
   }
 
@@ -462,7 +580,6 @@ export const confirmCheckIn = asyncHandler(async (req: Request, res: Response, n
   });
 });
 
-// --- NEW APP STORE REQUIREMENT: BOOKING CANCELLATIONS ---
 export const cancelBooking = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const reservationId = req.params.reservationId as string;
   const userId = req.user?._id?.toString();
@@ -472,7 +589,6 @@ export const cancelBooking = asyncHandler(async (req: Request, res: Response, ne
     return next(new AppError('Invalid reservation ID provided.', 400));
   }
 
-  // 1. Dual Lookup: Determine if it's a Property/Hotel/VIP or Car booking
   let reservation: any = await Reservation.findById(reservationId).populate('propertyId');
   let isCar = false;
 
@@ -485,7 +601,6 @@ export const cancelBooking = asyncHandler(async (req: Request, res: Response, ne
     return next(new AppError('Reservation not found', 404));
   }
 
-  // 2. Authorization Check (Only Guest, Host, or Admin can cancel)
   const asset = isCar ? reservation.carId : reservation.propertyId;
   const ownerId = asset?.ownerId?.toString();
   const guestId = reservation.userId.toString();
@@ -494,7 +609,6 @@ export const cancelBooking = asyncHandler(async (req: Request, res: Response, ne
     return next(new AppError('You are not authorized to cancel this booking.', 403));
   }
 
-  // 3. Logic Gate: Ensure it can actually be cancelled
   if (reservation.reservationStatus === 'COMPLETED' || reservation.reservationStatus === 'CANCELLED') {
     return next(new AppError(`Booking cannot be cancelled because it is already ${reservation.reservationStatus}.`, 400));
   }
@@ -503,7 +617,6 @@ export const cancelBooking = asyncHandler(async (req: Request, res: Response, ne
     return next(new AppError('Booking cannot be cancelled after check-in has been confirmed.', 400));
   }
 
-  // 4. State Management: Mark as Cancelled and flag for Admin Refund
   reservation.reservationStatus = 'CANCELLED';
   
   if (reservation.paymentStatus === 'SUCCESS') {
@@ -513,7 +626,6 @@ export const cancelBooking = asyncHandler(async (req: Request, res: Response, ne
 
   await reservation.save();
 
-  // 5. Database Cleanup: Remove the locked dates from the asset to free up inventory
   if (isCar) {
     await Car.findByIdAndUpdate(asset._id, {
       $pull: { bookedDates: { reservationId: reservation._id } } as any
@@ -522,6 +634,37 @@ export const cancelBooking = asyncHandler(async (req: Request, res: Response, ne
     await Property.findByIdAndUpdate(asset._id, {
       $pull: { bookedDates: { reservationId: reservation._id } } as any
     });
+  }
+
+  // 💡 NOTIFICATION INJECTION: Notify the OTHER party about the cancellation
+  const assetTitle = isCar ? `${asset.make} ${asset.carModel}` : asset.title;
+  const cancelledByGuest = userId === guestId;
+
+  const targetUserId = cancelledByGuest ? ownerId : guestId;
+  const cancelTitle = cancelledByGuest ? "Booking Cancelled by Guest" : "Booking Cancelled by Host/Admin";
+  const cancelBody = cancelledByGuest 
+    ? `The guest has cancelled their reservation for ${assetTitle}.`
+    : `Your reservation for ${assetTitle} was cancelled.`;
+
+  if (targetUserId) {
+    await NotificationService.sendPush(
+      targetUserId,
+      cancelTitle,
+      cancelBody,
+      "CANCELLATION",
+      reservation._id
+    );
+  }
+
+  // Also notify the person who cancelled, if there's a refund
+  if (reservation.paymentStatus === 'SUCCESS' && userId) {
+    await NotificationService.sendPush(
+      userId,
+      "Refund Processing",
+      `Your cancellation is confirmed and a refund for ${assetTitle} is pending.`,
+      "CANCELLATION",
+      reservation._id
+    );
   }
 
   res.status(200).json({

@@ -6,7 +6,8 @@ import { Reservation } from '../models/Reservation.js';
 import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
 import { Types } from 'mongoose';
-import {PaystackService} from '../services/paystack.service.js'
+import {PaystackService} from '../services/paystack.service.js';
+import { NotificationService } from '../services/notification.service.js'; // 💡 INJECTED
 
 // ==========================================
 // 1. CREATE VIP ESTABLISHMENT
@@ -130,6 +131,14 @@ export const initiateVipReservation = asyncHandler(async (req: Request, res: Res
       { display_name: "Booking Type", variable_name: "bookingType", value: "VIP" }
     ]
   };
+
+  // 💡 NOTIFICATION INJECTION: Notify Host of initiated VIP reservation
+  await NotificationService.sendPush(
+    establishment.ownerId,
+    "New VIP Reservation Initiated! 🍾",
+    `${user.firstName || 'A guest'} just initiated a booking at ${establishment.title}. Waiting for payment.`,
+    "NEW_BOOKING"
+  );
 
   // Pass callbackUrl to Paystack (null skips the custom reference so Paystack auto-generates one)
   const paystackData = await PaystackService.initializeTransaction(
@@ -271,7 +280,7 @@ export const updateVipEstablishment = asyncHandler(async (req: Request, res: Res
 export const confirmVipArrival = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { id } = req.params; 
   
-  const reservation = await Reservation.findById(id);
+  const reservation = await Reservation.findById(id).populate('propertyId');
   
   if (!reservation) {
     return next(new AppError('Reservation not found', 404));
@@ -286,6 +295,29 @@ export const confirmVipArrival = asyncHandler(async (req: Request, res: Response
   }
 
   await reservation.save();
+
+  // 💡 NOTIFICATION INJECTION: Notify the Guest that their arrival was confirmed by the club
+  await NotificationService.sendPush(
+    reservation.userId,
+    "Arrival Confirmed! 🥂",
+    "Your host has verified your arrival. Have a great time!",
+    "CHECK_IN",
+    reservation._id
+  );
+
+  // 💡 NOTIFICATION INJECTION: Notify Host of payout release if applicable
+  if (reservation.payoutStatus === 'RELEASED_TO_LANDLORD') {
+    const property = reservation.propertyId as any;
+    if (property && property.ownerId) {
+      await NotificationService.sendPush(
+        property.ownerId,
+        "Payout Authorized 💰",
+        "Guest arrival is fully confirmed. Funds have been authorized for payout.",
+        "PAYOUT",
+        reservation._id
+      );
+    }
+  }
 
   res.status(200).json({
     status: 'success',

@@ -8,6 +8,7 @@ import { AppError } from '../utils/AppError.js';
 import { CloudinaryService } from '../services/cloudinary.service.js';
 import { CarReservation } from '../models/CarReservation.js';
 import { EmailService } from '../services/email.service.js';
+import { NotificationService } from '../services/notification.service.js'; // 💡 INJECTED
 
 export const createCar = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const {
@@ -94,7 +95,6 @@ export const listAllCars = asyncHandler(async (req: Request, res: Response, next
 
   const query: any = {};
 
-  // 1. Universal Fuzzy Search Engine
   if (search) {
     query.$or = [
       { make: { $regex: search,$options: 'i' } },
@@ -104,7 +104,6 @@ export const listAllCars = asyncHandler(async (req: Request, res: Response, next
     ];
   }
 
-  // Legacy fallback if the app still explicitly uses ?city= instead of ?search=
   if (city && !search) {
     query['location.city'] = { $regex: new RegExp(city as string, 'i') };
   }
@@ -117,14 +116,12 @@ export const listAllCars = asyncHandler(async (req: Request, res: Response, next
     if (maxPrice) query.pricePer12Hours.$lte = Number(maxPrice);
   }
 
-  // 2. Date Availability Engine
   if (checkIn && checkOut) {
     const reqStart = new Date(checkIn as string);
     const reqEnd = new Date(checkOut as string);
 
-    query.isAvailable = true; // Ensure global kill-switch is on
+    query.isAvailable = true; 
 
-    // Exclude cars that have an overlapping reservation for these dates
     query.bookedDates = {
       $not: {
         $elemMatch: {
@@ -134,22 +131,19 @@ export const listAllCars = asyncHandler(async (req: Request, res: Response, next
       }
     };
   } else if (checkIn || checkOut) {
-    // If only one date is provided randomly, fallback to basic availability
     query.isAvailable = true;
   }
 
-  // 3. Strict Pagination Caps (Audit Fix)
   const pageNum = parseInt(page as string, 10) || 1;
   let limitNum = parseInt(limit as string, 10) || 10;
   
-  if (limitNum > 50) limitNum = 50; // Hard cap to prevent memory exhaustion
+  if (limitNum > 50) limitNum = 50; 
 
   const skip = (pageNum - 1) * limitNum;
 
-  // 4. Parallel Query Execution for Speed
   const [cars, total] = await Promise.all([
     Car.find(query)
-      .sort({ isAvailable: -1, createdAt: -1 }) // Available first, then newest
+      .sort({ isAvailable: -1, createdAt: -1 }) 
       .skip(skip)
       .limit(limitNum),
     Car.countDocuments(query)
@@ -186,6 +180,18 @@ export const initiateCarBooking = asyncHandler(async (req: Request, res: Respons
     dropoffTime
   );
 
+  // 💡 NOTIFICATION INJECTION: Notify the Host that someone initiated a booking (Optional but helpful for visibility)
+  const car = await Car.findById(carId).select('ownerId make carModel');
+  if (car) {
+    await NotificationService.sendPush(
+      car.ownerId,
+      "New Vehicle Rental! 🚗",
+      `${user.firstName || 'A guest'} just initiated a booking for your ${car.make} ${car.carModel}. Waiting for payment.`,
+      "NEW_BOOKING",
+      reservation._id
+    );
+  }
+
   const metadataPayload = {
     custom_fields: [
       { display_name: "Booking Type", variable_name: "bookingType", value: "CAR" },
@@ -214,12 +220,10 @@ export const initiateCarBooking = asyncHandler(async (req: Request, res: Respons
 export const getCarById = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const carId = req.params.id as string;
 
-  // 💡 FIX 3.4: Catch bad IDs before they crash the server
   if (!carId || !mongoose.Types.ObjectId.isValid(carId)) {
     return next(new AppError('Invalid car ID format.', 400));
   }
 
-  // 💡 FIX 3.3: Exclude sensitive owner info if it gets populated
   const car = await Car.findById(carId)
     .populate('ownerId', 'firstName lastName profilePicture')
     .select('-__v');
@@ -228,7 +232,6 @@ export const getCarById = asyncHandler(async (req: Request, res: Response, next:
     return next(new AppError('No vehicle found with that ID', 404));
   }
 
-  // Sanitize internal reservation IDs from bookedDates
   const sanitizedCar = car.toObject();
   if (sanitizedCar.bookedDates) {
     sanitizedCar.bookedDates = sanitizedCar.bookedDates.map((booking: any) => ({
@@ -248,7 +251,6 @@ export const confirmCarHandover = asyncHandler(async (req: Request, res: Respons
   const userId = req.user!._id.toString();
   const userRole = req.user!.role;
 
-  // 💡 FIX 3.4: Validate ID
   if (!reservationId || !mongoose.Types.ObjectId.isValid(reservationId)) {
     return next(new AppError('Invalid reservation ID format.', 400));
   }
@@ -279,15 +281,45 @@ export const confirmCarHandover = asyncHandler(async (req: Request, res: Respons
     return next(new AppError('You are not authorized to modify this reservation', 403));
   }
 
-  if (isGuest) reservation.guestConfirmedPickup = true;
-  if (isOwner) reservation.ownerConfirmedHandover = true;
+  if (isGuest) {
+    reservation.guestConfirmedPickup = true;
+    // 💡 NOTIFICATION INJECTION: Notify Host that Guest confirmed pickup
+    await NotificationService.sendPush(
+      owner._id,
+      "Pickup Confirmed! 🔑",
+      `${guest.firstName} has confirmed receiving the ${car.make}.`,
+      "PICKUP",
+      reservation._id
+    );
+  }
+  
+  if (isOwner) {
+    reservation.ownerConfirmedHandover = true;
+    // 💡 NOTIFICATION INJECTION: Notify Guest that Host confirmed handover
+    await NotificationService.sendPush(
+      guest._id,
+      "Vehicle Handed Over! 🚗",
+      `The host has confirmed the handover of the ${car.make}. Drive safely!`,
+      "PICKUP",
+      reservation._id
+    );
+  }
 
   if (reservation.guestConfirmedPickup && reservation.ownerConfirmedHandover && reservation.escrowStatus === 'HELD') {
     reservation.escrowStatus = 'RELEASED';
     reservation.reservationStatus = 'ACTIVE'; 
     console.log(`[ESCROW RELEASED] Car Booking ${reservation._id} funds authorized for payout.`);
 
-   EmailService.sendEscrowRelease({
+    // 💡 NOTIFICATION INJECTION: Notify Host that Escrow is released
+    await NotificationService.sendPush(
+      owner._id,
+      "Payout Authorized 💰",
+      `The escrow for ${car.make} has been released. The funds will settle shortly.`,
+      "PAYOUT",
+      reservation._id
+    );
+
+    EmailService.sendEscrowRelease({
       guestEmail: guest.email,
       guestName: `${guest.firstName || ''} ${guest.lastName || ''}`.trim() || 'Guest',
       guestPhone: guest.phoneNumber || 'No phone provided',
@@ -365,7 +397,6 @@ export const updateCar = asyncHandler(async (req: Request, res: Response, next: 
     return next(new AppError('You must be logged in to perform this action.', 401));
   }
 
-  // 💡 FIX 3.4: Validate ID
   if (!carId || !mongoose.Types.ObjectId.isValid(carId)) {
     return next(new AppError('Invalid car ID format.', 400));
   }
@@ -423,7 +454,6 @@ export const checkCarAvailability = asyncHandler(async (req: Request, res: Respo
   const { startDate, endDate } = req.body;
   const carId = req.params.id as string;
 
-  // 💡 FIX 3.4: Validate ID
   if (!carId || !mongoose.Types.ObjectId.isValid(carId)) {
     return next(new AppError('Invalid car ID format.', 400));
   }
