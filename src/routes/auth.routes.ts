@@ -1,10 +1,17 @@
 import { Router } from 'express';
-import { registerUser, loginUser, resetPassword, forgotPassword,  } from '../controllers/auth.controller.js';
+import { 
+  registerUser, 
+  loginUser, 
+  resetPassword, 
+  forgotPassword, 
+  loginLimiter 
+} from '../controllers/auth.controller.js';
 
 const router = Router();
 
 router.post('/register', registerUser);
-router.post('/login', loginUser);
+// Add loginLimiter as middleware before loginUser
+router.post('/login', loginLimiter, loginUser);
 
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);

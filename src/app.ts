@@ -7,23 +7,31 @@ import propertyRoutes from "./routes/property.routes.js"
 import carRoutes from './routes/car.routes.js';
 import payoutRoutes from './routes/payout.routes.js'
 import reservationRoutes from './routes/reservation.routes.js';
-import { globalErrorHandler } from './middlewares/errorHandler';
+import { globalErrorHandler } from './middlewares/errorHandler.js'; // Ensure .js extension is here if using ES modules
 import hotelRoutes from './routes/hotel.routes.js'
 import userRoutes from './routes/user.routes.js'
 import vipRoutes from './routes/vip.routes.js';
 import hostRoutes from './routes/host.routes.js';
 import adminRoutes from './routes/admin.routes.js';
-import reviewRoutes from './routes/reviews.routes.js'; // Import the review routes
+import reviewRoutes from './routes/reviews.routes.js'; 
+import { AppError } from './utils/AppError.js';
 
 const app: Application = express();
 
 // Global Middlewares
-app.use(helmet()); // Security headers
+app.use(helmet()); 
 app.use(cors());
 app.use(express.json());
-app.use(morgan('dev')); // HTTP request logger
+app.use(morgan('dev')); 
 
-
+// Health Check Route
+app.get('/health', (req: Request, res: Response) => {
+  res.status(200).json({
+    status: 'success',
+    message: 'Rentals Africa API is awake and healthy',
+    timestamp: new Date().toISOString(),
+  });
+});
 
 app.use("/api/v1/auth", authRoutes)
 app.use('/api/v1/reviews', reviewRoutes); 
@@ -37,17 +45,12 @@ app.use("/api/v1/cars", carRoutes)
 app.use("/api/v1/reservations", reservationRoutes)
 app.use('/api/v1/payouts', payoutRoutes)
 
+// JSON CATCH-ALL FOR UNHANDLED ROUTES (Safe for path-to-regexp v8+)
+app.use((req: Request, res: Response, next: NextFunction) => {
+  next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));
+});
 
 app.use(globalErrorHandler); // Global error handler
-
-// Health Check Route
-app.get('/health', (req: Request, res: Response) => {
-  res.status(200).json({
-    status: 'success',
-    message: 'Rentals Africa API is awake and healthy',
-    timestamp: new Date().toISOString(),
-  });
-});
 
 // Global Error Handler Guard
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {

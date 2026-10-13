@@ -3,6 +3,43 @@ import { User } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
+import { CloudinaryService } from '../services/cloudinary.service.js';
+
+export const uploadAvatar = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  // 1. TypeScript safety check: ensure the user object exists from the auth middleware
+  if (!req.user) {
+    return next(new AppError('You are not logged in! Please log in to get access.', 401));
+  }
+
+  // 2. Check if the multer middleware successfully attached the file
+  if (!req.file) {
+    return next(new AppError('Please provide an image file.', 400));
+  }
+
+  // 3. Upload the single buffer to Cloudinary using your existing service
+  // We override the default folder to keep avatars organized
+  const avatarUrl = await CloudinaryService.uploadImageBuffer(req.file.buffer, 'rentals/users');
+
+  // 4. Update the authenticated user's profilePicture field
+  const updatedUser = await User.findByIdAndUpdate(
+    req.user._id, 
+    { profilePicture: avatarUrl },
+    { new: true, runValidators: true }
+  );
+
+  if (!updatedUser) {
+    return next(new AppError('User not found.', 404));
+  }
+
+  // 5. Return the updated user object to the client
+  res.status(200).json({
+    status: 'success',
+    data: {
+      user: updatedUser
+    }
+  });
+});
+
 // --- APP STORE COMPLIANCE ROUTES (Audit Item 4.1) ---
 
 export const getMe = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {

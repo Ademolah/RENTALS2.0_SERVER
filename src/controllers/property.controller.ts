@@ -89,7 +89,6 @@ export const createHotel = asyncHandler(async (req: Request, res: Response, next
 });
 
 export const updateHotel = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // 💡 FIX: Explicitly cast to string
   const hotelId = req.params.id as string;
 
   if (!hotelId || !mongoose.Types.ObjectId.isValid(hotelId)) {
@@ -133,7 +132,6 @@ export const updateHotel = asyncHandler(async (req: Request, res: Response, next
 });
 
 export const deleteHotel = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // 💡 FIX: Explicitly cast to string
   const hotelId = req.params.id as string;
   
   if (!hotelId || !mongoose.Types.ObjectId.isValid(hotelId)) {
@@ -159,7 +157,19 @@ export const deleteHotel = asyncHandler(async (req: Request, res: Response, next
 });
 
 export const getProperties = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const { properties, total } = await PropertyService.getProperties(req.query);
+  const queryObj = { ...req.query };
+
+  // 💡 AUDIT FIX: Process guest capacity queries using gte operator
+  const guestParam = queryObj.guests || queryObj.maxGuests;
+  if (guestParam) {
+    const numGuests = Number(guestParam);
+    if (!isNaN(numGuests)) {
+      queryObj.maxGuests = { gte: numGuests } as any;
+    }
+    delete queryObj.guests; // Remove raw key so query doesn't try exact match
+  }
+
+  const { properties, total } = await PropertyService.getProperties(queryObj);
 
   res.status(200).json({
     status: 'success',
@@ -170,7 +180,6 @@ export const getProperties = asyncHandler(async (req: Request, res: Response, ne
 });
 
 export const getProperty = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // 💡 FIX: Explicitly cast to string
   const propertyId = req.params.id as string;
 
   if (!propertyId || !mongoose.Types.ObjectId.isValid(propertyId)) {
@@ -201,7 +210,6 @@ export const getProperty = asyncHandler(async (req: Request, res: Response, next
 
 export const checkPropertyAvailability = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { startDate, endDate } = req.body;
-  // 💡 FIX: Explicitly cast to string
   const propertyId = req.params.id as string;
 
   if (!propertyId || !mongoose.Types.ObjectId.isValid(propertyId)) {
@@ -252,7 +260,6 @@ export const checkPropertyAvailability = asyncHandler(async (req: Request, res: 
 });
 
 export const updateProperty = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // 💡 FIX: Explicitly cast to string
   const propertyId = req.params.id as string;
 
   if (!propertyId || !mongoose.Types.ObjectId.isValid(propertyId)) {
@@ -314,7 +321,6 @@ export const getLandlordBookings = asyncHandler(async (req: Request, res: Respon
 });
 
 export const checkHotelRoomAvailability = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // 💡 FIX: Explicitly cast to strings
   const hotelId = req.params.hotelId as string;
   const roomTypeId = req.params.roomTypeId as string;
   const { checkIn, checkOut } = req.query;
@@ -387,7 +393,6 @@ export const getHotels = asyncHandler(async (req: Request, res: Response, next: 
 });
 
 export const getHotel = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // 💡 FIX: Explicitly cast to string
   const hotelId = req.params.id as string;
 
   if (!hotelId || !mongoose.Types.ObjectId.isValid(hotelId)) {
@@ -441,7 +446,6 @@ export const getLandlordHotelBookings = asyncHandler(async (req: Request, res: R
 });
 
 export const confirmHotelCheckIn = asyncHandler(async (req: Request, res: Response) => {
-  // 💡 FIX: Explicitly cast to string
   const id = req.params.id as string; 
   
   if (!id || !mongoose.Types.ObjectId.isValid(id)) {
@@ -511,7 +515,6 @@ export const getGuestHotelBookings = asyncHandler(async (req: Request, res: Resp
 });
 
 export const guestConfirmHotelCheckIn = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // 💡 FIX: Explicitly cast to string
   const id = req.params.id as string;
   const userId = req.user?._id;
 
@@ -550,7 +553,6 @@ export const guestConfirmHotelCheckIn = asyncHandler(async (req: Request, res: R
 export const deleteProperty = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const propertyId = req.params.id as string;
 
-  // 1. Audit Item 3.4: Strict ID validation to prevent 500 crashes
   if (!propertyId || !mongoose.Types.ObjectId.isValid(propertyId)) {
     return next(new AppError('Invalid property ID format.', 400));
   }
@@ -561,7 +563,6 @@ export const deleteProperty = asyncHandler(async (req: Request, res: Response, n
     return next(new AppError('No property found with that ID', 404));
   }
 
-  // 2. Authorization check
   const isAdmin = req.user?.role === 'ADMIN';
   const isOwner = property.ownerId?.toString() === req.user?._id?.toString();
 
@@ -569,7 +570,6 @@ export const deleteProperty = asyncHandler(async (req: Request, res: Response, n
     return next(new AppError('You do not have permission to delete this property.', 403));
   }
 
-  // 3. Prevent deletion if there are ACTIVE future bookings locking escrow funds
   const activeBookingsCount = await Reservation.countDocuments({
     propertyId: propertyId,
     reservationStatus: 'ACTIVE',
@@ -580,7 +580,6 @@ export const deleteProperty = asyncHandler(async (req: Request, res: Response, n
     return next(new AppError('Cannot delete this property. It currently has active future reservations.', 400));
   }
 
-  // 4. Safe Delete
   await Property.findByIdAndDelete(propertyId);
 
   res.status(204).json({
