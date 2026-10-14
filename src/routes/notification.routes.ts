@@ -3,7 +3,8 @@ import { protect } from '../middlewares/auth.middleware.js';
 import { 
   savePushToken, 
   getMyNotifications, 
-  markAsRead 
+  markAsRead,
+  removePushToken 
 } from '../controllers/notification.controller.js';
 
 const router = express.Router();
@@ -11,6 +12,7 @@ const router = express.Router();
 router.use(protect); // All notification routes require login
 
 router.post('/push-token', savePushToken);
+router.delete('/push-token', removePushToken); // 💡 INJECTED
 router.get('/', getMyNotifications);
 router.patch('/:id/read', markAsRead);
 

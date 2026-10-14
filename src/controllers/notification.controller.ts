@@ -85,3 +85,22 @@ export const markAsRead = asyncHandler(async (req: Request, res: Response, next:
     data: { notification }
   });
 });
+
+// 💡 INJECTED: Route to remove a phone's push token on sign-out
+export const removePushToken = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { pushToken } = req.body;
+  const userId = req.user?._id;
+
+  if (!pushToken) {
+    return next(new AppError('Push token is required for removal.', 400));
+  }
+
+  await User.findByIdAndUpdate(userId, {
+    $pull: { pushTokens: pushToken } as any
+  });
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Push token removed successfully.'
+  });
+});

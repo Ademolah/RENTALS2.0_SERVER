@@ -114,10 +114,11 @@ export const forgotPassword = asyncHandler(async (req: Request, res: Response, n
   try {
     EmailService.sendPasswordReset({ to: user.email, firstName: user.firstName, resetUrl }).catch(console.error);
     
+    // 💡 AUDIT FIX: Removed `data: { resetToken }` to prevent token leakage. 
+    // The token is now ONLY sent via the EmailService.
     res.status(200).json({
       status: 'success',
-      message: 'Password reset link sent to email.',
-      data: { resetToken }
+      message: 'Password reset link sent to email.'
     });
   } catch (err) {
     return next(new AppError('There was an error sending the email. Try again later!', 500));
