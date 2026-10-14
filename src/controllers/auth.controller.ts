@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User.js';
 import { AuthService } from '../services/auth.service.js';
@@ -9,24 +9,37 @@ import { AppError } from '../utils/AppError.js';
 
 const FRONTEND_BASE_URL = process.env.FRONTEND_URL;
 
-// --- RATE LIMITERS (Audit Item 3.7 - Configured for RFC standard headers & 429 status) ---
+
 export const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 login requests per window
+  max: 5, 
   statusCode: 429,
-  standardHeaders: true, // Return rate limit info in `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` headers
-  legacyHeaders: false, // Disable legacy `X-RateLimit-*` headers
+  standardHeaders: true, 
+  legacyHeaders: false, 
+
+  keyGenerator: (req: Request) => {
+    const email = req.body.email ? req.body.email.toLowerCase() : 'unknown';
+    const clientIp = req.ip ? ipKeyGenerator(req.ip) : 'unknown';
+    return `${clientIp}_${email}`;
+  },
   message: { status: 'fail', message: 'Too many login attempts. Please try again after 15 minutes.' }
 });
 
 export const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5, // Limit each IP to 5 account creations per hour
+  max: 5, 
   statusCode: 429,
   standardHeaders: true,
   legacyHeaders: false,
+  
+  keyGenerator: (req: Request) => {
+    const email = req.body.email ? req.body.email.toLowerCase() : 'unknown';
+    const clientIp = req.ip ? ipKeyGenerator(req.ip) : 'unknown';
+    return `register_${clientIp}_${email}`;
+  },
   message: { status: 'fail', message: 'Too many accounts created from this IP. Please try again later.' }
 });
+
 
 export const registerUser = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { email, password, firstName, lastName, role, phoneNumber } = req.body;

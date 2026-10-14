@@ -373,3 +373,149 @@ export const deleteVipEstablishment = asyncHandler(async (req: Request, res: Res
     data: null
   });
 });
+
+
+
+// ==========================================
+// 9. CREATE VIP SERVICE (e.g., Armed Escort, Security)
+// ==========================================
+// ==========================================
+// 9. CREATE VIP SERVICE (e.g., Armed Escort, Security)
+// ==========================================
+export const createVipService = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  // 💡 FIX: Added 'street' to the destructured body
+  const { title, description, serviceType, pricePerDay, street, state, city, services } = req.body;
+
+  if (!['Lagos', 'Abuja', 'Federal Capital Territory'].includes(state)) {
+    return next(new AppError('VIP Services are currently restricted to Lagos and Abuja.', 400));
+  }
+
+  const files = req.files as Express.Multer.File[];
+  let images: string[] = [];
+  if (files && files.length > 0) {
+    images = await CloudinaryService.uploadMultipleImages(files);
+  } else {
+    return next(new AppError('Service images or branding assets are required.', 400));
+  }
+
+  let parsedServices = services;
+  if (typeof services === 'string') {
+    try { parsedServices = JSON.parse(services); } catch(e) { parsedServices = []; }
+  }
+
+  const servicePayload: any = {
+    title,
+    description,
+    category: 'VIP_SERVICE', 
+    establishmentType: serviceType, 
+    pricePerNight: Number(pricePerDay), 
+    address: { street: street || 'Service Area', city, state, country: 'Nigeria' },
+    services: parsedServices, 
+    images,
+    ownerId: req.user!._id
+  };
+
+  const service = await Property.create(servicePayload);
+
+  res.status(201).json({
+    status: 'success',
+    message: 'VIP Service created successfully.',
+    data: { service }
+  });
+});
+
+// ==========================================
+// 10. GET ALL VIP SERVICES
+// ==========================================
+export const getVipServices = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  // Only fetch VIP Services, excluding venues
+  const services = await Property.find({ category: 'VIP_SERVICE' })
+    .select('-bookedDates')
+    .sort('-createdAt');
+
+  res.status(200).json({
+    status: 'success',
+    results: services.length,
+    data: { services }
+  });
+});
+
+// ==========================================
+// 11. INITIATE VIP SERVICE BOOKING
+// ==========================================
+export const initiateVipServiceBooking = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { serviceId, startDate, endDate, callbackUrl } = req.body;
+  const user = req.user as any;
+
+  if (!serviceId || !startDate || !endDate) {
+    return next(new AppError('Service ID, start date, and end date are required.', 400));
+  }
+
+  const service = await Property.findOne({ _id: serviceId, category: 'VIP_SERVICE' });
+  if (!service) return next(new AppError('VIP Service not found', 404));
+
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (start >= end) return next(new AppError('End date must be after start date.', 400));
+
+  // Calculate total days
+  const diffTime = Math.abs(end.getTime() - start.getTime());
+  const calculatedDays = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+  const totalAmount = (service.pricePerNight || 0) * calculatedDays;
+
+  const metadata = {
+    custom_fields: [
+      { display_name: "Property ID", variable_name: "propertyId", value: serviceId },
+      { display_name: "User ID", variable_name: "userId", value: user._id.toString() },
+      { display_name: "Start Date", variable_name: "checkInDate", value: startDate },
+      { display_name: "End Date", variable_name: "checkOutDate", value: endDate },
+      { display_name: "Booking Type", variable_name: "bookingType", value: "VIP_SERVICE" }
+    ]
+  };
+
+  // Alert the security firm/host that a booking is pending
+  await NotificationService.sendPush(
+    service.ownerId,
+    "New VIP Service Request! 🛡️",
+    `${user.firstName || 'A client'} just requested ${service.title}. Waiting for payment.`,
+    "NEW_BOOKING"
+  );
+
+  const paystackData = await PaystackService.initializeTransaction(
+    user.email,
+    totalAmount,
+    metadata,
+    null,
+    callbackUrl
+  );
+
+  res.status(200).json({
+    status: 'success',
+    message: 'VIP Service Reservation initiated',
+    data: { checkoutUrl: paystackData.authorization_url }
+  });
+});
+
+
+export const getVipServiceById = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { id } = req.params;
+
+  // 💡 FIX: Guard clause proves to TypeScript that `id` is strictly a string, not undefined
+  if (!id) {
+    return next(new AppError('Service ID is required.', 400));
+  }
+
+  const service = await Property.findOne({ 
+    _id: id, 
+    category: 'VIP_SERVICE' 
+  }).populate('ownerId', 'firstName lastName email profilePicture phoneNumber');
+
+  if (!service) {
+    return next(new AppError('VIP Service not found.', 404));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: { service }
+  });
+});

@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 
 // --- ENUMS & LITERALS ---
 export type UserRole = 'USER' | 'LANDLORD' | 'ADMIN'; 
-export type PropertyCategory = 'CAR RENTAL' | 'SHORTLET' | 'VIP RESERVATION' | 'HOTEL';
+export type PropertyCategory = 'CAR RENTAL' | 'SHORTLET' | 'VIP RESERVATION' | 'HOTEL' | 'VIP_SERVICE'; 
 export type PaymentStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'REFUNDED';
 // SURGICAL FIX: Added 'PENDING' without removing existing statuses
 export type ReservationStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
@@ -132,7 +132,7 @@ export interface IProperty {
   numReviews: number;
   ownerId: Types.ObjectId; 
   startingPrice?: number;
-  establishmentType?: 'LOUNGE' | 'CLUB' | 'FINE_DINING' | 'BEACH_CLUB' | 'PRIVATE_YACHT' | 'OTHER';
+  establishmentType?: string;
   depositAmount?: number;
   openHours?: {
     open: string;

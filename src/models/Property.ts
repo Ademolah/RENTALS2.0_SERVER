@@ -23,7 +23,7 @@ const propertySchema = new Schema<IPropertyDocument>(
     description: { type: String, required: true },
     category: { 
       type: String, 
-      enum: ['CAR RENTAL', 'SHORTLET', 'VIP RESERVATION', 'HOTEL'], 
+      enum: ['CAR RENTAL', 'SHORTLET', 'VIP RESERVATION', 'HOTEL', 'VIP_SERVICE'], 
       required: true 
     },
     rating: {
@@ -93,7 +93,7 @@ const propertySchema = new Schema<IPropertyDocument>(
 
     establishmentType: {
       type: String,
-      enum: ['LOUNGE', 'CLUB', 'FINE_DINING', 'BEACH_CLUB', 'PRIVATE_YACHT', 'OTHER'],
+
       required: function(this: any) { return this.category === 'VIP RESERVATION'; }
     },
     services: [{ type: String }],

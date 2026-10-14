@@ -353,6 +353,47 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
             break;
           }
 
+          case 'VIP_SERVICE': {
+            const newServiceReservation: any = await Reservation.create({
+              userId: metadata.userId,
+              propertyId: metadata.propertyId,
+              category: 'VIP_SERVICE',
+              checkInDate: new Date(metadata.checkInDate),
+              checkOutDate: new Date(metadata.checkOutDate),
+              guestsCount: 1, // Default for service
+              totalAmount: txData.amount / 100, 
+              paystackReference: reference,
+              paymentStatus: 'SUCCESS',
+              escrowStatus: 'HELD'
+            } as any);
+
+            const property = await Property.findByIdAndUpdate(metadata.propertyId, {
+              $push: {
+                bookedDates: {
+                  startDate: new Date(metadata.checkInDate),
+                  endDate: new Date(metadata.checkOutDate),
+                  reservationId: newServiceReservation._id
+                } as any 
+              }
+            }).populate('ownerId');
+            
+            assetTitle = property?.title || 'VIP Security Service';
+            host = property?.ownerId;
+            datesOrTime = `${new Date(metadata.checkInDate).toLocaleDateString()} to ${new Date(metadata.checkOutDate).toLocaleDateString()}`;
+            console.log(`✅ [Webhook] VIP Service secured & Escrowed (Ref: ${reference})`);
+
+            if (host && guest) {
+              await NotificationService.sendPush(
+                host._id,
+                "New VIP Service Booked! 🛡️",
+                `${guest.firstName} booked ${assetTitle}.`,
+                "NEW_BOOKING",
+                newServiceReservation._id
+              );
+            }
+            break;
+          }
+
           default:
             console.warn(`⚠️ [Webhook] Unknown bookingType received: ${bookingType}`);
         }
