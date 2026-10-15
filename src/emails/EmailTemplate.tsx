@@ -6,7 +6,8 @@ import {
 interface EmailTemplateProps {
   recipientName: string;
   role: 'GUEST' | 'HOST' | 'ADMIN';
-  eventType: 'BOOKING_SUCCESS' | 'ESCROW_RELEASE' | 'HOST_WELCOME' | 'USER_WELCOME' | 'PASSWORD_RESET';
+  // 💡 FIX: Added 'CANCELLATION' to the eventType union
+  eventType: 'BOOKING_SUCCESS' | 'ESCROW_RELEASE' | 'HOST_WELCOME' | 'USER_WELCOME' | 'PASSWORD_RESET' | 'CANCELLATION';
   assetTitle?: string | undefined;
   bookingType?: 'PROPERTY' | 'SHORTLET' | 'CAR' | 'HOTEL' | 'VIP' | undefined; 
   amount?: number | undefined;
@@ -46,11 +47,20 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
   const isHostWelcome = eventType === 'HOST_WELCOME';
   const isUserWelcome = eventType === 'USER_WELCOME';
   const isPasswordReset = eventType === 'PASSWORD_RESET';
+  const isCancellation = eventType === 'CANCELLATION'; // 💡 FIX: Added cancellation boolean
   
   const getHeadline = () => {
     if (isPasswordReset) return 'Password Reset Request.';
     if (isHostWelcome) return 'Welcome to the portfolio.';
     if (isUserWelcome) return 'Welcome to Rentals Africa.';
+    
+    // 💡 FIX: Cancellation headlines
+    if (isCancellation) {
+      if (role === 'GUEST') return 'Reservation Cancelled.';
+      if (role === 'HOST') return 'Reservation Cancelled.';
+      return 'Platform Cancellation.';
+    }
+
     if (isBooking) {
       if (role === 'GUEST') return 'Reservation Secured.';
       if (role === 'HOST') return 'New Reservation.';
@@ -75,11 +85,16 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
 
   const getSubtext = () => {
     if (isPasswordReset) return 'We received a request to reset your Rentals Africa account password. Click the secure button below to create a new password. This link will safely expire in 15 minutes.';
-    
     if (isHostWelcome) return 'Your host application has been reviewed and approved. Your account is now verified, granting you full access to list properties, manage reservations, and curate exceptional experiences for our guests.';
-    
     if (isUserWelcome) return 'Your account has been successfully created. You can now explore and reserve exclusive luxury shortlets, vehicles, hotels, and VIP experiences across the continent.';
     
+    // 💡 FIX: Cancellation dynamic wording injected exactly as requested
+    if (isCancellation) {
+      if (role === 'GUEST') return `Your cancellation request for ${assetTitle} has been acknowledged. A refund process will be initiated subject to our terms and conditions.`;
+      if (role === 'HOST') return `We regret to inform you that the reservation for ${assetTitle} has been cancelled by the guest due to an unforeseen or undisclosed emergency. We apologize for the inconvenience.`;
+      return `A guest has just cancelled their reservation for ${assetTitle}. Please review the details below and take the appropriate action next.`;
+    }
+
     if (isBooking) {
       if (role === 'GUEST') return `Your payment for ${assetTitle} is safely held by Rentals Africa until you arrive.`;
       if (role === 'HOST') return `A guest has secured a reservation for ${assetTitle}. The payment is securely held and will be released upon check-in.`;
@@ -125,7 +140,7 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
                   </Row>
                   <Hr style={divider} />
                   <Row style={detailRow}>
-                    <Column><Text style={detailLabel}>{isBooking ? 'Secure Deposit' : 'Payout Amount'}</Text></Column>
+                    <Column><Text style={detailLabel}>{isBooking ? 'Secure Deposit' : (isCancellation ? 'Original Amount' : 'Payout Amount')}</Text></Column>
                     <Column><Text style={amountText}>₦{amount?.toLocaleString()}</Text></Column>
                   </Row>
 

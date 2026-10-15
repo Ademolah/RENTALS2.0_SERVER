@@ -697,7 +697,6 @@ export const cancelBooking = asyncHandler(async (req: Request, res: Response, ne
     );
   }
 
-  // Also notify the person who cancelled, if there's a refund
   if (reservation.paymentStatus === 'SUCCESS' && userId) {
     await NotificationService.sendPush(
       userId,
@@ -706,6 +705,44 @@ export const cancelBooking = asyncHandler(async (req: Request, res: Response, ne
       "CANCELLATION",
       reservation._id
     );
+  }
+
+  // 💡 EMAIL INJECTION: Three-way cancellation broadcast (Guest, Host, Admin)
+  try {
+    const guestUser = await User.findById(guestId);
+    const hostUser = await User.findById(ownerId);
+
+    if (guestUser && hostUser) {
+      let datesOrTime = '';
+      if (isCar) {
+        datesOrTime = `${new Date(reservation.pickupTime).toLocaleDateString()} - ${new Date(reservation.dropoffTime).toLocaleDateString()}`;
+      } else {
+        datesOrTime = `${new Date(reservation.checkInDate).toLocaleDateString()} - ${new Date(reservation.checkOutDate).toLocaleDateString()}`;
+      }
+
+      // Map the internal category to the email template's expected types
+      let mappedBookingType = 'SHORTLET';
+      if (isCar) mappedBookingType = 'CAR';
+      else if (asset.category === 'HOTEL') mappedBookingType = 'HOTEL';
+      else if (asset.category === 'VIP RESERVATION' || asset.category === 'VIP_SERVICE') mappedBookingType = 'VIP';
+
+      // Dispatched without awaiting so it doesn't block the API response
+      EmailService.sendBookingCancellation({
+        guestEmail: guestUser.email,
+        guestName: guestUser.firstName,
+        guestPhone: guestUser.phoneNumber,
+        hostEmail: hostUser.email,
+        hostName: hostUser.firstName,
+        hostPhone: hostUser.phoneNumber,
+        assetTitle: assetTitle,
+        bookingType: mappedBookingType as any,
+        amount: reservation.totalAmount || 0,
+        datesOrTime,
+        paystackReference: reservation.paystackReference
+      }).catch(err => console.error('[Cancellation] Failed to dispatch emails:', err));
+    }
+  } catch (error) {
+    console.error('[Cancellation] Error fetching users for email broadcast:', error);
   }
 
   res.status(200).json({

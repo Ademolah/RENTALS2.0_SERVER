@@ -12,15 +12,15 @@ const ADMIN_EMAIL = 'rentalsafrica@gmail.com';
 interface NotificationPayload {
   guestEmail: string;
   guestName: string;
-  guestPhone?: string; 
+  guestPhone?: string | undefined; // 
   hostEmail: string;
   hostName: string;
-  hostPhone?: string;  
+  hostPhone?: string | undefined;  // 
   assetTitle: string;
   bookingType: 'SHORTLET' | 'CAR' | 'HOTEL' | 'VIP';
   amount: number;
   datesOrTime: string;
-  paystackReference?: string; 
+  paystackReference?: string | undefined; 
 }
 
 interface HostWelcomePayload {
@@ -167,4 +167,49 @@ export class EmailService {
       console.error('[Email Service] Failed to send Password Reset email:', error);
     }
   }
+
+
+  // --- NEW: CANCELLATION BROADCAST ---
+  static async sendBookingCancellation(data: NotificationPayload) {
+    try {
+      const guestHtml = await render(
+        React.createElement(LuxuryEmailTemplate, { ...data, role: 'GUEST', eventType: 'CANCELLATION', recipientName: data.guestName } as any)
+      );
+      
+      const hostHtml = await render(
+        React.createElement(LuxuryEmailTemplate, { ...data, role: 'HOST', eventType: 'CANCELLATION', recipientName: data.hostName } as any)
+      );
+
+      const adminHtml = await render(
+        React.createElement(LuxuryEmailTemplate, { ...data, role: 'ADMIN', eventType: 'CANCELLATION', recipientName: 'Admin Team' } as any)
+      );
+
+      await Promise.all([
+        resend.emails.send({ 
+          from: 'Rentals <noreply@rentalsafrica.com>', 
+          to: data.guestEmail, 
+          subject: `Cancellation Acknowledged: ${data.assetTitle}`, 
+          html: guestHtml 
+        }),
+        resend.emails.send({ 
+          from: 'Rentals <noreply@rentalsafrica.com>', 
+          to: data.hostEmail, 
+          subject: `Reservation Cancelled: ${data.assetTitle}`, 
+          html: hostHtml 
+        }),
+        resend.emails.send({ 
+          from: 'Rentals <noreply@rentalsafrica.com>', 
+          to: ADMIN_EMAIL, 
+          subject: `Platform Alert: ${data.bookingType} Cancellation`, 
+          html: adminHtml 
+        })
+      ]);
+
+      console.log(`[Email Service] Cancellation broadcast successfully sent for ${data.assetTitle}`);
+    } catch (error) {
+      console.error('[Email Service] Failed to send Cancellation emails:', error);
+    }
+  }
+
 }
+
