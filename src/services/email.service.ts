@@ -29,6 +29,12 @@ interface HostWelcomePayload {
   dashboardUrl: string;
 }
 
+export interface EmailVerificationPayload {
+  to: string;
+  firstName: string;
+  otpCode: string;
+}
+
 interface UserWelcomePayload {
   to: string;
   firstName: string;
@@ -208,6 +214,30 @@ export class EmailService {
       console.log(`[Email Service] Cancellation broadcast successfully sent for ${data.assetTitle}`);
     } catch (error) {
       console.error('[Email Service] Failed to send Cancellation emails:', error);
+    }
+  }
+
+  static async sendEmailVerification(data: EmailVerificationPayload) {
+    try {
+      const html = await render(
+        React.createElement(LuxuryEmailTemplate, {
+          recipientName: data.firstName,
+          role: 'GUEST',
+          eventType: 'EMAIL_VERIFICATION',
+          otpCode: data.otpCode
+        } as any)
+      );
+
+      await resend.emails.send({
+        from: 'Rentals <noreply@rentalsafrica.com>',
+        to: data.to,
+        subject: 'Your Rentals Africa Verification Code',
+        html: html
+      });
+
+      console.log(`[Email Service] Verification OTP sent to ${data.to}`);
+    } catch (error) {
+      console.error('[Email Service] Failed to send Verification email:', error);
     }
   }
 

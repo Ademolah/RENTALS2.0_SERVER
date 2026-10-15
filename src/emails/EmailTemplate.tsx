@@ -6,14 +6,14 @@ import {
 interface EmailTemplateProps {
   recipientName: string;
   role: 'GUEST' | 'HOST' | 'ADMIN';
-  // 💡 FIX: Added 'CANCELLATION' to the eventType union
-  eventType: 'BOOKING_SUCCESS' | 'ESCROW_RELEASE' | 'HOST_WELCOME' | 'USER_WELCOME' | 'PASSWORD_RESET' | 'CANCELLATION';
+  eventType: 'BOOKING_SUCCESS' | 'ESCROW_RELEASE' | 'HOST_WELCOME' | 'USER_WELCOME' | 'PASSWORD_RESET' | 'CANCELLATION' | 'EMAIL_VERIFICATION';
   assetTitle?: string | undefined;
   bookingType?: 'PROPERTY' | 'SHORTLET' | 'CAR' | 'HOTEL' | 'VIP' | undefined; 
   amount?: number | undefined;
   datesOrTime?: string | undefined;
   dashboardUrl?: string | undefined; 
   resetUrl?: string | undefined; 
+  otpCode?: string;
   
   guestName?: string | undefined;
   guestEmail?: string | undefined;
@@ -29,6 +29,7 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
   recipientName,
   role,
   eventType,
+  otpCode,
   assetTitle,
   bookingType,
   amount,
@@ -47,14 +48,15 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
   const isHostWelcome = eventType === 'HOST_WELCOME';
   const isUserWelcome = eventType === 'USER_WELCOME';
   const isPasswordReset = eventType === 'PASSWORD_RESET';
-  const isCancellation = eventType === 'CANCELLATION'; // 💡 FIX: Added cancellation boolean
+  const isCancellation = eventType === 'CANCELLATION'; 
+  const isEmailVerification = eventType === 'EMAIL_VERIFICATION';
   
   const getHeadline = () => {
     if (isPasswordReset) return 'Password Reset Request.';
     if (isHostWelcome) return 'Welcome to the portfolio.';
     if (isUserWelcome) return 'Welcome to Rentals Africa.';
+    if (isEmailVerification) return 'Verify Your Email.';
     
-    // 💡 FIX: Cancellation headlines
     if (isCancellation) {
       if (role === 'GUEST') return 'Reservation Cancelled.';
       if (role === 'HOST') return 'Reservation Cancelled.';
@@ -87,8 +89,8 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
     if (isPasswordReset) return 'We received a request to reset your Rentals Africa account password. Click the secure button below to create a new password. This link will safely expire in 15 minutes.';
     if (isHostWelcome) return 'Your host application has been reviewed and approved. Your account is now verified, granting you full access to list properties, manage reservations, and curate exceptional experiences for our guests.';
     if (isUserWelcome) return 'Your account has been successfully created. You can now explore and reserve exclusive luxury shortlets, vehicles, hotels, and VIP experiences across the continent.';
+    if (isEmailVerification) return 'Please use the 6-digit verification code below to complete your registration. This code will expire in 15 minutes.';
     
-    // 💡 FIX: Cancellation dynamic wording injected exactly as requested
     if (isCancellation) {
       if (role === 'GUEST') return `Your cancellation request for ${assetTitle} has been acknowledged. A refund process will be initiated subject to our terms and conditions.`;
       if (role === 'HOST') return `We regret to inform you that the reservation for ${assetTitle} has been cancelled by the guest due to an unforeseen or undisclosed emergency. We apologize for the inconvenience.`;
@@ -121,7 +123,26 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
             <Heading style={headline}>{getHeadline()}</Heading>
             <Text style={subtext}>{getSubtext()}</Text>
 
-            {!isHostWelcome && !isUserWelcome && !isPasswordReset ? (
+            {/* 💡 STATE 1: ONLY show OTP for verification emails */}
+            {isEmailVerification && otpCode && (
+              <Section style={{ textAlign: 'left', margin: '24px 0' }}>
+                <Text style={{ fontSize: '32px', fontWeight: 'bold', letterSpacing: '8px', color: '#111111', margin: 0 }}>
+                  {otpCode}
+                </Text>
+              </Section>
+            )}
+
+            {/* 💡 STATE 2: ONLY show Buttons for Welcome or Password Reset emails */}
+            {(isHostWelcome || isUserWelcome || isPasswordReset) && (
+              <Section style={{ textAlign: 'left' }}>
+                <a href={isPasswordReset ? resetUrl : dashboardUrl} style={primaryButton}>
+                  {isHostWelcome ? 'Access Host Dashboard' : isPasswordReset ? 'Reset Password' : 'Explore Portfolio'}
+                </a>
+              </Section>
+            )}
+
+            {/* 💡 STATE 3: ONLY show the Asset/Transaction table for bookings, escrow, and cancellations */}
+            {!isEmailVerification && !isHostWelcome && !isUserWelcome && !isPasswordReset && (
               <>
                 <Section style={detailsCard}>
                   <Row style={detailRow}>
@@ -175,12 +196,6 @@ export const LuxuryEmailTemplate: React.FC<EmailTemplateProps> = ({
                   </Section>
                 )}
               </>
-            ) : (
-              <Section style={{ textAlign: 'left' }}>
-                <a href={isPasswordReset ? resetUrl : dashboardUrl} style={primaryButton}>
-                  {isHostWelcome ? 'Access Host Dashboard' : isPasswordReset ? 'Reset Password' : 'Explore Portfolio'}
-                </a>
-              </Section>
             )}
 
             <Text style={footerMessage}>

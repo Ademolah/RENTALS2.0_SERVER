@@ -54,10 +54,33 @@ export const registerUser = asyncHandler(async (req: Request, res: Response, nex
   }
 
   const assignedRole = role === 'ADMIN' ? 'USER' : role; 
+  
+  // 💡 Generate 6-digit OTP and 15-minute expiry
+  const otpCode = Math.floor(100000 + Math.random() * 900000).toString(); 
+  const otpExpiry = new Date(Date.now() + 15 * 60 * 1000); 
 
   const existingUser = await User.findOne({ email });
+
   if (existingUser) {
-    return next(new AppError('Email is already registered.', 400));
+    if (existingUser.isVerified) {
+      return next(new AppError('Email is already registered and verified.', 400));
+    }
+    
+    // 💡 If unverified, update their details and send a fresh OTP so they don't get locked out
+    existingUser.verificationCode = otpCode;
+    existingUser.verificationCodeExpires = otpExpiry;
+    existingUser.passwordHash = await AuthService.hashPassword(password);
+    existingUser.firstName = firstName;
+    existingUser.lastName = lastName;
+    if (phoneNumber) existingUser.phoneNumber = phoneNumber;
+    
+    await existingUser.save();
+    await EmailService.sendEmailVerification({ to: email, firstName, otpCode });
+
+    return res.status(200).json({
+      status: 'success',
+      message: 'A new verification code has been sent to your email.'
+    });
   }
 
   const passwordHash = await AuthService.hashPassword(password);
@@ -69,22 +92,22 @@ export const registerUser = asyncHandler(async (req: Request, res: Response, nex
     lastName,
     phoneNumber, 
     role: assignedRole || 'USER',
+    isVerified: false,
+    verificationCode: otpCode,
+    verificationCodeExpires: otpExpiry
   });
 
-  EmailService.sendUserWelcome({
-    to: newUser.email,
-    firstName: newUser.firstName,
-    exploreUrl: FRONTEND_BASE_URL || '' 
-  }).catch(console.error); 
+  // 💡 Send the OTP email immediately upon creation instead of the Welcome Email
+  await EmailService.sendEmailVerification({ 
+    to: newUser.email, 
+    firstName: newUser.firstName, 
+    otpCode 
+  });
 
-  const token = AuthService.generateToken(newUser.id);
-
-  newUser.passwordHash = undefined as any;
-
+  // 💡 Return a pending status. No token is returned yet.
   res.status(201).json({
-    status: 'success',
-    token,
-    data: { user: newUser }
+    status: 'pending',
+    message: 'Registration initiated. Please check your email for the verification code.'
   });
 });
 
@@ -166,4 +189,47 @@ export const resetPassword = asyncHandler(async (req: Request, res: Response, ne
   } catch (error) {
     return next(new AppError('Token is invalid or has expired.', 401));
   }
+});
+
+export const verifyEmail = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { email, otpCode } = req.body;
+
+  if (!email || !otpCode) {
+    return next(new AppError('Please provide both email and verification code.', 400));
+  }
+
+  // Find user with matching email, exact OTP, and ensure OTP hasn't expired
+  const user = await User.findOne({ 
+    email: email.toLowerCase(),
+    verificationCode: otpCode,
+    verificationCodeExpires: { $gt: new Date() } 
+  });
+
+  if (!user) {
+    return next(new AppError('Invalid or expired verification code.', 400));
+  }
+
+  // Mark as verified and clear OTP fields from the database
+  user.isVerified = true;
+  user.verificationCode = undefined as any;
+  user.verificationCodeExpires = undefined as any;
+  await user.save();
+
+  // Now that they are verified, dispatch the Welcome Email
+  EmailService.sendUserWelcome({
+    to: user.email,
+    firstName: user.firstName,
+    exploreUrl: process.env.FRONTEND_URL || '' 
+  }).catch(console.error); 
+
+  // Generate auth token and log them in immediately
+  const token = AuthService.generateToken(user.id);
+  user.passwordHash = undefined as any;
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Email verified successfully.',
+    token,
+    data: { user }
+  });
 });

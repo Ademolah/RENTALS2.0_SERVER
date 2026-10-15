@@ -115,6 +115,8 @@ export interface IUser {
   firstName: string;
   favoriteProperties: mongoose.Types.ObjectId[];
   lastName: string;
+  verificationCode?: string;
+  verificationCodeExpires?: Date;
   role: UserRole;
   bankDetails: IBankDetails;
   phoneNumber?: string; 
