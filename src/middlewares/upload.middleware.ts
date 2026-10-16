@@ -1,37 +1,39 @@
 import multer from 'multer';
 import { AppError } from '../utils/AppError.js';
 
-// Store files in memory as Buffers so we can stream them directly to Cloudinary
+// Store files in memory as Buffers so we can stream them directly to Cloudinary[cite: 8]
 const storage = multer.memoryStorage();
 
 const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-
-  // 1. Check if the mimetype starts with image/
   const isImageMime = file.mimetype.startsWith('image/');
+  const isVideoMime = file.mimetype.startsWith('video/');
   
-  // 2. Also check the file extension as a fallback for quirky browser downloads
   const isImageExtension = /\.(jpg|jpeg|png|webp|gif|heic)$/i.test(file.originalname);
+  const isVideoExtension = /\.(mp4|mov|quicktime|webm)$/i.test(file.originalname);
 
-  if (isImageMime || isImageExtension) {
-    // Force fix the mimetype to image/jpeg if it came in as an octet-stream 
-    // so Cloudinary handles it correctly downstream
-    if (file.mimetype === 'application/octet-stream' && file.originalname.endsWith('.jpeg')) {
-      file.mimetype = 'image/jpeg';
-    } else if (file.mimetype === 'application/octet-stream' && file.originalname.endsWith('.png')) {
-      file.mimetype = 'image/png';
+  if (isImageMime || isImageExtension || isVideoMime || isVideoExtension) {
+    if (file.mimetype === 'application/octet-stream') {
+      if (file.originalname.endsWith('.jpeg') || file.originalname.endsWith('.jpg')) file.mimetype = 'image/jpeg';
+      else if (file.originalname.endsWith('.png')) file.mimetype = 'image/png';
+      else if (file.originalname.endsWith('.mp4')) file.mimetype = 'video/mp4';
     }
-
     cb(null, true);
   } else {
-    cb(new AppError('Not an image! Please upload only images.', 400));
+    cb(new AppError('Invalid file type! Please upload only images or allowed video formats.', 400));
   }
 };
 
-
+// 💡 FIX: Global limit increased to 50MB to allow the video. 
 export const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit per image for premium quality without bloat
+    fileSize: 50 * 1024 * 1024, // 50MB max overall
   },
 });
+
+// 💡 NEW: Export specialized field interceptors
+export const propertyMediaUpload = upload.fields([
+  { name: 'images', maxCount: 15 }, // Allow up to 15 images
+  { name: 'video', maxCount: 1 }    // Strictly enforce ONLY 1 video
+]);

@@ -12,10 +12,12 @@ import  HostRequest  from '../models/HostRequest.js';
 // 1. PLATFORM OVERVIEW (STATS)
 // ==========================================
 export const getDashboardStats = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // Correctly targeting LANDLORD and the dedicated HostRequest collection
   const totalUsers = await User.countDocuments({ role: 'USER' as any });
   const totalHosts = await User.countDocuments({ role: 'LANDLORD' as any });
   const pendingHosts = await HostRequest.countDocuments({ status: 'PENDING' });
+
+  // 💡 NEW: Let the admin know how many properties are waiting for review
+  const pendingAssets = await Property.countDocuments({ status: 'PENDING' });
 
   const totalShortlets = await Property.countDocuments({ category: 'SHORTLET' });
   const totalHotels = await Property.countDocuments({ category: 'HOTEL' });
@@ -52,7 +54,8 @@ export const getDashboardStats = asyncHandler(async (req: Request, res: Response
     status: 'success',
     data: {
       users: { totalUsers, totalHosts, pendingHosts },
-      assets: { totalShortlets, totalHotels, totalVip, totalCars },
+      // 💡 NEW: pendingAssets added to the response payload
+      assets: { totalShortlets, totalHotels, totalVip, totalCars, pendingAssets },
       financials: { 
         totalPlatformVolume, 
         escrowCurrentlyHeld, 
@@ -113,7 +116,7 @@ export const getAssetOversight = asyncHandler(async (req: Request, res: Response
 });
 
 // ==========================================
-// 4. VERIFY / SUSPEND ASSETS
+// 4. VERIFY / SUSPEND ASSETS (Legacy Booleans)
 // ==========================================
 export const toggleAssetStatus = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const assetType = req.params.assetType as string;
@@ -127,7 +130,6 @@ export const toggleAssetStatus = asyncHandler(async (req: Request, res: Response
   let updatedAsset;
   const typeStr = assetType.toUpperCase();
   
-  // Safely route SHORTLET, HOTEL, and VIP types to the Property model
   const isPropertyModel = ['PROPERTY', 'SHORTLET', 'HOTEL', 'VIP', 'VIP RESERVATION'].includes(typeStr);
 
   if (isPropertyModel) {
@@ -159,6 +161,58 @@ export const toggleAssetStatus = asyncHandler(async (req: Request, res: Response
   res.status(200).json({
     status: 'success',
     message: `${typeStr} status updated successfully`,
+    data: {
+      asset: updatedAsset
+    }
+  });
+});
+
+// ==========================================
+// 5. 💡 NEW: APPROVE / REJECT LISTING WORKFLOW
+// ==========================================
+export const updateAssetApprovalStatus = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  // Cast params explicitly as strings to satisfy TypeScript
+  const { assetType, assetId } = req.params as { assetType: string; assetId: string };
+  const { status } = req.body;
+
+  if (!assetType || !assetId) {
+    return next(new AppError('Asset type and ID are required', 400));
+  }
+
+  // Validate the incoming status string
+  const validStatuses = ['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'];
+  if (!validStatuses.includes(status)) {
+    return next(new AppError(`Invalid status. Must be one of: ${validStatuses.join(', ')}`, 400));
+  }
+
+  let updatedAsset;
+  const typeStr = assetType.toUpperCase(); // This will now work without errors!
+  
+  const isPropertyModel = ['PROPERTY', 'SHORTLET', 'HOTEL', 'VIP', 'VIP RESERVATION'].includes(typeStr);
+
+  if (isPropertyModel) {
+    updatedAsset = await Property.findByIdAndUpdate(
+      assetId,
+      { status },
+      { new: true, runValidators: true }
+    );
+  } else if (typeStr === 'CAR') {
+    updatedAsset = await Car.findByIdAndUpdate(
+      assetId,
+      { status },
+      { new: true, runValidators: true }
+    );
+  } else {
+    return next(new AppError('Invalid asset type.', 400));
+  }
+
+  if (!updatedAsset) {
+    return next(new AppError('Asset not found', 404));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    message: `${typeStr} listing status successfully updated to ${status}`,
     data: {
       asset: updatedAsset
     }

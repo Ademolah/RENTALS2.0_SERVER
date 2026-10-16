@@ -4,10 +4,10 @@ import {
   getDashboardStats,
   getEscrowLedger,
   getAssetOversight,
-  toggleAssetStatus
+  toggleAssetStatus,
+  updateAssetApprovalStatus // 💡 NEW IMPORT
 } from '../controllers/admin.controller.js';
 
-// Optional: Import your host application routes here if you want to centralize them under /api/admin
 import { getHostApplications, processHostApplication } from '../controllers/host.controller.js';
 
 const router = Router();
@@ -26,11 +26,15 @@ router.get('/ledger', getEscrowLedger);
 
 // 3. Asset Oversight
 router.get('/assets', getAssetOversight);
+
+// Legacy toggle (for verifying/availability)
 router.patch('/assets/:assetType/:assetId', toggleAssetStatus);
 
-// 4. Host Applications (Imported from Host Controller for centralized Admin API routing)
+// 💡 NEW: The dedicated route for approving or rejecting a listing
+router.patch('/assets/:assetType/:assetId/approval', updateAssetApprovalStatus);
+
+// 4. Host Applications
 router.get('/host-applications', getHostApplications);
 router.patch('/host-applications/:id', processHostApplication);
-
 
 export default router;

@@ -21,6 +21,14 @@ const propertySchema = new Schema<IPropertyDocument>(
     
     title: { type: String, required: true, trim: true },
     description: { type: String, required: true },
+    
+    // NEW: Admin Approval Status Workflow
+    status: { 
+      type: String, 
+      enum: ['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'], 
+      default: 'PENDING' 
+    },
+
     category: { 
       type: String, 
       enum: ['CAR RENTAL', 'SHORTLET', 'VIP RESERVATION', 'HOTEL', 'VIP_SERVICE'], 
@@ -69,12 +77,19 @@ const propertySchema = new Schema<IPropertyDocument>(
       }
     },
     amenities: [{ type: String }],
+    
+    // NEW & FIXED: Media and Security Fields (No Duplicates)
     images: [{ type: String }], 
+    video: { type: String }, 
+    imageHashes: [{ type: String, select: false }], 
+
+    // FIXED: Availability Fields (No Duplicates)
     isAvailable: { type: Boolean, default: true },
     nextAvailableDate: {
       type: Date,
       default: null 
     },
+    
     bookedDates: [
       {
         startDate: { type: Date, required: true },
@@ -93,7 +108,6 @@ const propertySchema = new Schema<IPropertyDocument>(
 
     establishmentType: {
       type: String,
-
       required: function(this: any) { return this.category === 'VIP RESERVATION'; }
     },
     services: [{ type: String }],
@@ -104,7 +118,7 @@ const propertySchema = new Schema<IPropertyDocument>(
       daysOpen: [{ type: String }]
     },
     
-    // SURGICAL FIX: Bedrooms and Bathrooms for Shortlets
+    // Bedrooms and Bathrooms for Shortlets
     bedrooms: {
       type: Number,
       required: function(this: any) {

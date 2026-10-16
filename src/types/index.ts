@@ -131,6 +131,9 @@ export interface IProperty {
   description: string;
   category: PropertyCategory;
   rating: number;
+  status : string;
+  video: string;
+  imageHashes: string[];
   numReviews: number;
   ownerId: Types.ObjectId; 
   startingPrice?: number;

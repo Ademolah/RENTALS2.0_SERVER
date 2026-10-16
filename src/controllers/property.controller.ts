@@ -8,11 +8,25 @@ import { Reservation } from '../models/Reservation.js';
 import { AppError } from '../utils/AppError.js';
 
 export const createProperty = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const files = req.files as Express.Multer.File[];
+  // 1. Cast files to an object to handle the fields provided by our new upload middleware
+  const files = req.files as { [fieldname: string]: Express.Multer.File[] };
   
   let imageUrls: string[] = [];
-  if (files && files.length > 0) {
-    imageUrls = await CloudinaryService.uploadMultipleImages(files);
+  let videoUrl: string | undefined = undefined;
+
+  // 2. Handle Image Uploads
+  if (files?.images && files.images.length > 0) {
+    imageUrls = await CloudinaryService.uploadMultipleImages(files.images);
+  }
+
+  // 3. Handle Video Upload
+  if (files?.video && files.video.length > 0) {
+    const videoFile = files.video[0];
+    
+    // Safely check that the element at index 0 is not undefined
+    if (videoFile) {
+      videoUrl = await CloudinaryService.uploadVideo(videoFile);
+    }
   }
 
   let parsedAddress = req.body.address;
@@ -20,10 +34,14 @@ export const createProperty = asyncHandler(async (req: Request, res: Response, n
     parsedAddress = JSON.parse(parsedAddress);
   }
 
+  // 4. Construct payload with Workflow Status and Security Hashes
   const propertyData = {
     ...req.body,
     address: parsedAddress,
     images: imageUrls,
+    video: videoUrl,
+    imageHashes: req.body.imageHashes, // 💡 Injected by the mediaValidator middleware
+    status: 'PENDING',                 // 💡 Hardcoded to ensure it stays hidden until approved
     ownerId: req.user?._id,
   };
 
@@ -31,6 +49,7 @@ export const createProperty = asyncHandler(async (req: Request, res: Response, n
 
   res.status(201).json({
     status: 'success',
+    message: 'Property submitted successfully and is pending admin approval.',
     data: { property }
   });
 });
@@ -158,6 +177,10 @@ export const deleteHotel = asyncHandler(async (req: Request, res: Response, next
 
 export const getProperties = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const queryObj = { ...req.query };
+
+  // 💡 THE BULLETPROOF FIX: Lock the public feed to only show APPROVED properties.
+  // This ensures pending/rejected assets never leak to the public API or frontend.
+  queryObj.status = 'APPROVED';
 
   // 💡 AUDIT FIX: Process guest capacity queries using gte operator
   const guestParam = queryObj.guests || queryObj.maxGuests;
