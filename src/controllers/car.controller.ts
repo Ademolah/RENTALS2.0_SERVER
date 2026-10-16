@@ -78,7 +78,8 @@ export const createCar = asyncHandler(async (req: Request, res: Response, next: 
 export const listCars = asyncHandler(async (req: Request, res: Response) => {
   const { city, category } = req.query;
   
-  const filter: any = {};
+  // 💡 BULLETPROOF FIX: Initialize filter with the APPROVED lock
+  const filter: any = { status: 'APPROVED' };
   
   if (city) filter['location.city'] = city;
   if (category) filter.category = category;
@@ -93,7 +94,8 @@ export const listCars = asyncHandler(async (req: Request, res: Response) => {
 export const listAllCars = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { search, category, city, minPrice, maxPrice, limit = 10, page = 1, checkIn, checkOut } = req.query;
 
-  const query: any = {};
+  // 💡 BULLETPROOF FIX: Initialize query with the APPROVED lock
+  const query: any = { status: 'APPROVED' };
 
   if (search) {
     query.$or = [

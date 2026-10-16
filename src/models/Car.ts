@@ -25,6 +25,11 @@ const carSchema = new Schema<ICarDocument>(
       type: String,
       required: [true, 'Please provide a description of the vehicle']
     },
+    status: { 
+      type: String, 
+      enum: ['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'], 
+      default: 'PENDING' 
+    },
     features: [{ type: String }],
     images: [{ type: String }],
     isAvailable: { type: Boolean, default: true },

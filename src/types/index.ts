@@ -48,6 +48,7 @@ export interface ICar {
   make: string;
   carModel: string;
   year: number;
+  status: string;
   category: CarCategory;
   transmission: Transmission;
   ownerId: Types.ObjectId; 
