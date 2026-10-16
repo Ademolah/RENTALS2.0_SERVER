@@ -47,6 +47,8 @@ const roomTypeSchema = new Schema<IRoomType>({
 export interface ICar {
   make: string;
   carModel: string;
+  imageHashes: string;
+  video: string;
   year: number;
   status: string;
   category: CarCategory;

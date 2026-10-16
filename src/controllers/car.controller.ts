@@ -12,29 +12,31 @@ import { NotificationService } from '../services/notification.service.js'; // �
 
 export const createCar = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const {
-    make,
-    carModel,
-    year,
-    category,
-    transmission,
-    pricePer12Hours,
-    currency,
-    seatNumber,
-    location,
-    description,
-    features,
+    make, carModel, year, category, transmission, pricePer12Hours, currency, 
+    seatNumber, location, description, features
   } = req.body;
 
-  const files = req.files as Express.Multer.File[];
-  if (!files || files.length === 0) {
+  // 💡 Safely extract the fields object from our custom Multer middleware
+  const files = req.files as { [fieldname: string]: Express.Multer.File[] } || {};
+
+  if (!files.images || files.images.length === 0) {
     return next(new AppError('You must upload at least one image of the vehicle.', 400));
   }
 
-  const imageUploadPromises = files.map((file) => 
+  // 1. Process Images
+  const imageUploadPromises = files.images.map((file) => 
     CloudinaryService.uploadImageBuffer(file.buffer, 'rentals/cars')
   );
-  
   const imageUrls = await Promise.all(imageUploadPromises);
+
+  // 2. Process Video (Optional)
+  let videoUrl: string | undefined = undefined;
+  if (files.video && files.video.length > 0) {
+    const videoFile = files.video[0];
+    if (videoFile) {
+      videoUrl = await CloudinaryService.uploadVideo(videoFile);
+    }
+  }
 
   let parsedLocation;
   try {
@@ -65,15 +67,19 @@ export const createCar = asyncHandler(async (req: Request, res: Response, next: 
     seatNumber,
     features: parsedFeatures || [],
     images: imageUrls, 
+    ...(videoUrl && { video: videoUrl }),             
+    ...(req.body.imageHashes && { imageHashes: req.body.imageHashes }),
+    status: 'PENDING',
     isAvailable: true
   });
 
   res.status(201).json({
     status: 'success',
-    message: 'Vehicle listed successfully.',
+    message: 'Vehicle listed successfully and is pending admin approval.',
     data: { car: newCar }
   });
 });
+
 
 export const listCars = asyncHandler(async (req: Request, res: Response) => {
   const { city, category } = req.query;
@@ -404,9 +410,14 @@ export const updateCar = asyncHandler(async (req: Request, res: Response, next: 
   }
   
   let updateData = { ...req.body };
+  
+  // 💡 Safely extract the fields object
+  const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
 
-  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
-    const newUploadedImages = await CloudinaryService.uploadMultipleImages(req.files);
+  // 1. Handle incoming images
+  if (files?.images && files.images.length > 0) {
+    // CloudinaryService.uploadMultipleImages must now accept the files.images array
+    const newUploadedImages = await CloudinaryService.uploadMultipleImages(files.images);
     
     let keptImages = [];
     if (updateData.existingImages) {
@@ -415,7 +426,29 @@ export const updateCar = asyncHandler(async (req: Request, res: Response, next: 
         : JSON.parse(updateData.existingImages); 
     }
     updateData.images = [...keptImages, ...newUploadedImages];
+
+    // Append new hashes if your validator middleware generated them for the update
+    if (req.body.imageHashes) {
+      let keptHashes = [];
+      if (updateData.existingImageHashes) {
+        keptHashes = Array.isArray(updateData.existingImageHashes)
+          ? updateData.existingImageHashes
+          : JSON.parse(updateData.existingImageHashes);
+      }
+      updateData.imageHashes = [...keptHashes, ...req.body.imageHashes];
+    }
   }
+
+  // 2. Handle incoming video 
+  if (files?.video && files.video.length > 0) {
+    const videoFile = files.video[0];
+    if (videoFile) {
+      updateData.video = await CloudinaryService.uploadVideo(videoFile);
+    }
+  }
+
+  // If status needs to revert to PENDING upon major edits, you can force it here:
+  // updateData.status = 'PENDING';
 
   const car = await Car.findOneAndUpdate(
     { _id: carId, ownerId: userId } as any, 

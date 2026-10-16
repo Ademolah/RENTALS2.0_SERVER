@@ -298,8 +298,13 @@ export const updateProperty = asyncHandler(async (req: Request, res: Response, n
     updateData.capacity = JSON.parse(updateData.capacity);
   }
 
-  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
-    const newUploadedImages = await CloudinaryService.uploadMultipleImages(req.files);
+  // 💡 Safely extract the fields object since we use propertyMediaUpload
+  const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+
+  // 1. Handle incoming new images
+  if (files?.images && files.images.length > 0) {
+    const newUploadedImages = await CloudinaryService.uploadMultipleImages(files.images);
+    
     let keptImages = [];
     if (updateData.existingImages) {
       keptImages = Array.isArray(updateData.existingImages) 
@@ -307,7 +312,30 @@ export const updateProperty = asyncHandler(async (req: Request, res: Response, n
         : JSON.parse(updateData.existingImages);
     }
     updateData.images = [...keptImages, ...newUploadedImages];
+
+    // 💡 Handle hashes if new images were uploaded and validated
+    if (req.body.imageHashes) {
+      let keptHashes = [];
+      if (updateData.existingImageHashes) {
+        keptHashes = Array.isArray(updateData.existingImageHashes)
+          ? updateData.existingImageHashes
+          : JSON.parse(updateData.existingImageHashes);
+      }
+      updateData.imageHashes = [...keptHashes, ...req.body.imageHashes];
+    }
   }
+
+  // 2. 💡 Handle incoming new video
+  if (files?.video && files.video.length > 0) {
+    const videoFile = files.video[0];
+    if (videoFile) {
+      updateData.video = await CloudinaryService.uploadVideo(videoFile);
+    }
+  }
+
+  // Optional: If you want hosts who update their listings to have to be re-approved by the admin, 
+  // you can uncomment the following line. If you want them to stay approved, leave it out.
+  // updateData.status = 'PENDING';
 
   const property = await PropertyService.updateProperty(propertyId, updateData);
 

@@ -32,6 +32,8 @@ const carSchema = new Schema<ICarDocument>(
     },
     features: [{ type: String }],
     images: [{ type: String }],
+    imageHashes: [{ type: String }], 
+    video: { type: String },         
     isAvailable: { type: Boolean, default: true },
     bookedDates: [
       {
@@ -41,7 +43,6 @@ const carSchema = new Schema<ICarDocument>(
       }
     ],
   },
-  
   { timestamps: true }
 );
 

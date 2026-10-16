@@ -5,7 +5,8 @@ import {
     getLandlordCarBookings, updateCar , checkCarAvailability
 } from '../controllers/car.controller.js';
 import { protect, restrictTo } from '../middlewares/auth.middleware.js';
-import { upload } from '../middlewares/upload.middleware.js'; 
+import { propertyMediaUpload } from '../middlewares/upload.middleware.js'; 
+import { validateAndHashMedia } from '../middlewares/mediaValidator.middleware.js';
 
 const router = Router();
 
@@ -45,7 +46,20 @@ router.get('/landlord/fleet', restrictTo('LANDLORD', 'ADMIN'), getLandlordCars);
 router.get('/landlord/bookings', restrictTo('LANDLORD', 'ADMIN'), getLandlordCarBookings);
 
 // Dynamic & Action routes
-router.post('/', restrictTo("ADMIN", "LANDLORD"), upload.array('images', 5), createCar);
-router.patch('/:id', restrictTo('LANDLORD', 'ADMIN'),upload.array('images', 5), updateCar);
+router.post(
+  '/', 
+  restrictTo("ADMIN", "LANDLORD"), 
+  propertyMediaUpload,    
+  validateAndHashMedia,
+  createCar
+);
+
+router.patch(
+  '/:id', 
+  restrictTo('LANDLORD', 'ADMIN'),
+  propertyMediaUpload,    
+  validateAndHashMedia,
+  updateCar
+);
 
 export default router;
