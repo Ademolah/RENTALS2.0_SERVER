@@ -15,20 +15,23 @@ const carReservationSchema = new Schema<ICarReservationDocument>(
     },
     reservationStatus: { 
       type: String, 
-      enum: ['ACTIVE', 'COMPLETED', 'CANCELLED'], 
+      // 💡 FIX: Added PENDING and WHATSAPP_INITIATED
+      enum: ['PENDING', 'ACTIVE', 'COMPLETED', 'CANCELLED', 'WHATSAPP_INITIATED'], 
       default: 'ACTIVE' 
     },
     guestConfirmedPickup: { type: Boolean, default: false },
     ownerConfirmedHandover: { type: Boolean, default: false },
     escrowStatus: { 
       type: String, 
-      enum: ['HELD', 'RELEASED', 'REFUNDED'], 
+      // 💡 FIX: Added PENDING and CANCELLED
+      enum: ['PENDING', 'HELD', 'RELEASED', 'REFUNDED', 'CANCELLED'], 
       default: 'HELD' 
     },
     paystackReference: { type: String, unique: true, sparse: true },
     payoutStatus: { 
       type: String, 
-      enum: ['HELD_IN_ESCROW', 'RELEASED_TO_OWNER', 'DIRECT_TO_RENTALS', 'REFUNDED'],
+      // 💡 FIX: Added REFUND_PENDING
+      enum: ['HELD_IN_ESCROW', 'RELEASED_TO_OWNER', 'DIRECT_TO_RENTALS', 'REFUNDED', 'REFUND_PENDING'],
       default: 'HELD_IN_ESCROW'
     },
     isRentalsCar: { type: Boolean, default: false }

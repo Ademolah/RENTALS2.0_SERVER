@@ -4,7 +4,7 @@ import {
   paystackWebhook, 
   getMyBookings, 
   confirmCheckIn, 
-  cancelBooking
+  cancelBooking, createWhatsappIntent
 } from '../controllers/reservation.controller.js';
 import { protect } from '../middlewares/auth.middleware.js';
 
@@ -14,7 +14,7 @@ router.post('/webhook', paystackWebhook);
 
 router.use(protect);
 
-
+router.post('/whatsapp-intent', createWhatsappIntent);
 router.post('/book', initiateBooking);
 router.get('/my-bookings', getMyBookings);
 router.patch('/:reservationId/confirm-checkin', confirmCheckIn);

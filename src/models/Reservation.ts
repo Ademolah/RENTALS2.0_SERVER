@@ -5,22 +5,20 @@ const reservationSchema = new Schema<IReservationDocument>(
   {
     propertyId: { type: Schema.Types.ObjectId, ref: 'Property', required: true },
     
-    // NEW: Added roomTypeId for Hotel reservations
     roomTypeId: { type: Schema.Types.ObjectId }, 
     
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     
-    // SURGICAL FIX: Added category for dashboard filtering, defaults to SHORTLET so older code doesn't break
     category: {
       type: String,
-      enum: ['SHORTLET', 'HOTEL', 'VIP_RESERVATION'],
+      // 💡 FIX: Added VIP and VIP_SERVICE to support the unified controller
+      enum: ['SHORTLET', 'HOTEL', 'VIP_RESERVATION', 'VIP', 'VIP_SERVICE'],
       default: 'SHORTLET'
     },
 
     checkInDate: { type: Date, required: true },
     checkOutDate: { type: Date, required: true },
     
-    // SURGICAL FIX: VIP Arrival Time
     expectedArrivalTime: { type: String },
 
     totalAmount: { type: Number, required: true, min: 0 },
@@ -31,15 +29,16 @@ const reservationSchema = new Schema<IReservationDocument>(
     },
     reservationStatus: { 
       type: String, 
-      // SURGICAL FIX: Added PENDING, but kept default as ACTIVE so older shortlet flows don't break
-      enum: ['PENDING', 'ACTIVE', 'COMPLETED', 'CANCELLED'], 
+      // 💡 FIX: Added WHATSAPP_INITIATED for the audit trail
+      enum: ['PENDING', 'ACTIVE', 'COMPLETED', 'CANCELLED', 'WHATSAPP_INITIATED'], 
       default: 'ACTIVE' 
     },
     checkInConfirmedByGuest: { type: Boolean, default: false },
     checkInConfirmedByLandlord: { type: Boolean, default: false },
     payoutStatus: { 
       type: String, 
-      enum: ['HELD_IN_ESCROW', 'RELEASED_TO_LANDLORD', 'DIRECT_TO_RENTALS', 'REFUNDED'],
+      // 💡 FIX: Added REFUND_PENDING to support your cancellation logic
+      enum: ['HELD_IN_ESCROW', 'RELEASED_TO_LANDLORD', 'DIRECT_TO_RENTALS', 'REFUNDED', 'REFUND_PENDING'],
       default: 'HELD_IN_ESCROW'
     },
     isRentalsProperty: { type: Boolean, default: false },
@@ -49,7 +48,6 @@ const reservationSchema = new Schema<IReservationDocument>(
    { timestamps: true }
 );
 
-// Added roomTypeId to the compound index for faster hotel availability queries
 reservationSchema.index({ propertyId: 1, roomTypeId: 1, checkInDate: 1, checkOutDate: 1 });
 reservationSchema.index({ userId: 1, reservationStatus: 1 });
 

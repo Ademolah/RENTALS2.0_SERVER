@@ -34,6 +34,6 @@ export const upload = multer({
 
 // 💡 NEW: Export specialized field interceptors
 export const propertyMediaUpload = upload.fields([
-  { name: 'images', maxCount: 15 }, // Allow up to 15 images
-  { name: 'video', maxCount: 1 }    // Strictly enforce ONLY 1 video
+  { name: 'images', maxCount: 15 }, 
+  { name: 'video', maxCount: 1 }    
 ]);

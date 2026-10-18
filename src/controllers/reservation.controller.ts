@@ -754,3 +754,72 @@ export const cancelBooking = asyncHandler(async (req: Request, res: Response, ne
     }
   });
 });
+
+// Add this to the very bottom of reservation.controller.ts
+
+export const createWhatsappIntent = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { assetId, assetType, startDate, endDate, extraData } = req.body;
+  const user = req.user as any;
+
+  if (!user || !user._id) {
+    return next(new AppError('User authentication context missing.', 401));
+  }
+
+  if (!assetId || !assetType || !startDate) {
+    return next(new AppError('Missing required fields for WhatsApp booking.', 400));
+  }
+
+  // Generate a secure 6-character alphanumeric reference code
+  const reference = 'WA-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+
+  try {
+    if (assetType === 'CAR') {
+      const carReservation = await CarReservation.create({
+        userId: user._id,
+        carId: assetId,
+        pickupTime: new Date(startDate),
+        dropoffTime: new Date(endDate || startDate),
+        withDriver: extraData?.withDriver || false,
+        reservationStatus: 'WHATSAPP_INITIATED',
+        paymentStatus: 'PENDING',
+        paystackReference: reference,
+        escrowStatus: 'PENDING',
+        totalAmount: 0 // Prevents Mongoose validation crash
+      } as any);
+
+      return res.status(201).json({
+        status: 'success',
+        message: 'WhatsApp intent logged successfully',
+        data: { reference, reservationId: carReservation._id }
+      });
+    } else {
+      const reservation = await Reservation.create({
+        userId: user._id,
+        propertyId: assetId,
+        category: assetType, // 'SHORTLET', 'HOTEL', 'VIP', 'VIP_SERVICE'
+        checkInDate: new Date(startDate),
+        checkOutDate: endDate ? new Date(endDate) : new Date(new Date(startDate).getTime() + (24 * 60 * 60 * 1000)),
+        guestsCount: extraData?.guests || 1,
+        roomTypeId: extraData?.roomId || undefined,
+        reservationStatus: 'WHATSAPP_INITIATED',
+        paymentStatus: 'PENDING',
+        paystackReference: reference,
+        escrowStatus: 'PENDING',
+        totalAmount: 0 // Prevents Mongoose validation crash
+      } as any);
+
+      return res.status(201).json({
+        status: 'success',
+        message: 'WhatsApp intent logged successfully',
+        data: { reference, reservationId: reservation._id }
+      });
+    }
+  } catch (error: any) {
+    console.error("❌ Mongoose Validation Error (WhatsApp Intent):", error.message);
+    return res.status(500).json({
+      status: 'error',
+      message: 'Failed to create WhatsApp intent record.',
+      error: error.message
+    });
+  }
+});
