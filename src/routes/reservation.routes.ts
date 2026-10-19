@@ -4,9 +4,9 @@ import {
   paystackWebhook, 
   getMyBookings, 
   confirmCheckIn, 
-  cancelBooking, createWhatsappIntent
+  cancelBooking, createWhatsappIntent, generateConciergeCheckout
 } from '../controllers/reservation.controller.js';
-import { protect } from '../middlewares/auth.middleware.js';
+import { protect, restrictTo } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
@@ -15,6 +15,7 @@ router.post('/webhook', paystackWebhook);
 router.use(protect);
 
 router.post('/whatsapp-intent', createWhatsappIntent);
+router.post('/generate-checkout', protect, restrictTo('ADMIN'), generateConciergeCheckout);
 router.post('/book', initiateBooking);
 router.get('/my-bookings', getMyBookings);
 router.patch('/:reservationId/confirm-checkin', confirmCheckIn);

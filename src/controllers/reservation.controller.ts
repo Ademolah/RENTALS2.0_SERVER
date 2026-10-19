@@ -182,20 +182,35 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
         let datesOrTime = '';
         const guest = await User.findById(metadata.userId);
 
-        switch (bookingType) {
+       switch (bookingType) {
           case 'PROPERTY': {
-            const newReservation = await Reservation.create({
-              userId: metadata.userId,
-              propertyId: metadata.propertyId,
-              category: 'SHORTLET',
-              checkInDate: new Date(metadata.checkInDate),
-              checkOutDate: new Date(metadata.checkOutDate),
-              guestsCount: Number(metadata.guestsCount),
-              totalAmount: txData.amount / 100, 
-              paystackReference: reference,
-              paymentStatus: 'SUCCESS',
-              escrowStatus: 'HELD'
-            } as any);
+            let newReservation: any;
+            
+            // 💡 If from WhatsApp: Update Draft
+            if (metadata.reservationId) {
+              newReservation = await Reservation.findByIdAndUpdate(metadata.reservationId, {
+                paymentStatus: 'SUCCESS',
+                escrowStatus: 'HELD',
+                reservationStatus: 'ACTIVE',
+                totalAmount: txData.amount / 100,
+                paystackReference: reference
+              }, { new: true });
+            } 
+            // 💡 If Standard Web Checkout: Create New
+            else {
+              newReservation = await Reservation.create({
+                userId: metadata.userId,
+                propertyId: metadata.propertyId,
+                category: 'SHORTLET',
+                checkInDate: new Date(metadata.checkInDate),
+                checkOutDate: new Date(metadata.checkOutDate),
+                guestsCount: Number(metadata.guestsCount),
+                totalAmount: txData.amount / 100, 
+                paystackReference: reference,
+                paymentStatus: 'SUCCESS',
+                escrowStatus: 'HELD'
+              } as any);
+            }
 
             const property = await Property.findByIdAndUpdate(metadata.propertyId, {
               $push: {
@@ -210,9 +225,8 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
             assetTitle = property?.title || 'Luxury Shortlet';
             host = property?.ownerId;
             datesOrTime = `${new Date(metadata.checkInDate).toLocaleDateString()} to ${new Date(metadata.checkOutDate).toLocaleDateString()}`;
-            console.log(`✅ [Webhook] Property Reservation created & Dates Locked (Ref: ${reference})`);
+            console.log(`✅ [Webhook] Property Reservation created/updated & Dates Locked (Ref: ${reference})`);
             
-            // 💡 NOTIFICATION INJECTION: Notify Host
             if (host && guest) {
               await NotificationService.sendPush(
                 host._id,
@@ -226,19 +240,32 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
           }
 
           case 'HOTEL': {
-            const newHotelReservation: any = await Reservation.create({
-              userId: metadata.userId,
-              propertyId: metadata.propertyId,
-              category: 'HOTEL',
-              roomTypeId: metadata.roomId, 
-              checkInDate: new Date(metadata.checkInDate),
-              checkOutDate: new Date(metadata.checkOutDate),
-              guestsCount: Number(metadata.guestsCount),
-              totalAmount: txData.amount / 100, 
-              paystackReference: reference,
-              paymentStatus: 'SUCCESS',
-              escrowStatus: 'HELD'
-            } as any); 
+            let newHotelReservation: any;
+
+            if (metadata.reservationId) {
+              newHotelReservation = await Reservation.findByIdAndUpdate(metadata.reservationId, {
+                paymentStatus: 'SUCCESS',
+                escrowStatus: 'HELD',
+                reservationStatus: 'ACTIVE',
+                totalAmount: txData.amount / 100,
+                paystackReference: reference,
+                roomTypeId: metadata.roomId 
+              }, { new: true });
+            } else {
+              newHotelReservation = await Reservation.create({
+                userId: metadata.userId,
+                propertyId: metadata.propertyId,
+                category: 'HOTEL',
+                roomTypeId: metadata.roomId, 
+                checkInDate: new Date(metadata.checkInDate),
+                checkOutDate: new Date(metadata.checkOutDate),
+                guestsCount: Number(metadata.guestsCount),
+                totalAmount: txData.amount / 100, 
+                paystackReference: reference,
+                paymentStatus: 'SUCCESS',
+                escrowStatus: 'HELD'
+              } as any); 
+            }
 
             const property = await Property.findByIdAndUpdate(metadata.propertyId, {
               $push: {
@@ -259,7 +286,6 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
             datesOrTime = `${new Date(metadata.checkInDate).toLocaleDateString()} to ${new Date(metadata.checkOutDate).toLocaleDateString()}`;
             console.log(`✅ [Webhook] Hotel Room (${exactRoomName}) secured & Escrow Held (Ref: ${reference})`);
             
-            // 💡 NOTIFICATION INJECTION: Notify Host
             if (host && guest) {
               await NotificationService.sendPush(
                 host._id,
@@ -273,6 +299,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
           }
 
           case 'CAR': {
+            // Your Car logic already assumes an existing reservation, so it requires no structural changes!
             const reservation = await CarReservation.findById(metadata.reservationId);
             
             if (reservation) {
@@ -297,7 +324,6 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
               datesOrTime = `${new Date(reservation.pickupTime).toLocaleString()} to ${new Date(reservation.dropoffTime).toLocaleString()}`;
               console.log(`✅ [Webhook] Car Reservation secured & Dates Locked (Ref: ${reference})`);
 
-              // 💡 NOTIFICATION INJECTION: Notify Host
               if (host && guest) {
                 await NotificationService.sendPush(
                   host._id,
@@ -312,18 +338,30 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
           }
 
           case 'VIP': {
-            const newVipReservation: any = await Reservation.create({
-              userId: metadata.userId,
-              propertyId: metadata.propertyId,
-              category: 'VIP',
-              checkInDate: new Date(metadata.checkInDate),
-              checkOutDate: new Date(new Date(metadata.checkInDate).getTime() + (24 * 60 * 60 * 1000)),
-              guestsCount: Number(metadata.guestsCount),
-              totalAmount: txData.amount / 100, 
-              paystackReference: reference,
-              paymentStatus: 'SUCCESS',
-              escrowStatus: 'HELD'
-            } as any);
+            let newVipReservation: any;
+
+            if (metadata.reservationId) {
+              newVipReservation = await Reservation.findByIdAndUpdate(metadata.reservationId, {
+                paymentStatus: 'SUCCESS',
+                escrowStatus: 'HELD',
+                reservationStatus: 'ACTIVE',
+                totalAmount: txData.amount / 100,
+                paystackReference: reference
+              }, { new: true });
+            } else {
+              newVipReservation = await Reservation.create({
+                userId: metadata.userId,
+                propertyId: metadata.propertyId,
+                category: 'VIP',
+                checkInDate: new Date(metadata.checkInDate),
+                checkOutDate: new Date(new Date(metadata.checkInDate).getTime() + (24 * 60 * 60 * 1000)),
+                guestsCount: Number(metadata.guestsCount),
+                totalAmount: txData.amount / 100, 
+                paystackReference: reference,
+                paymentStatus: 'SUCCESS',
+                escrowStatus: 'HELD'
+              } as any);
+            }
 
             const property = await Property.findByIdAndUpdate(metadata.propertyId, {
               $push: {
@@ -340,7 +378,6 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
             datesOrTime = `${new Date(metadata.checkInDate).toLocaleDateString()} (Arrival: ${metadata.arrivalTime || 'TBD'})`;
             console.log(`✅ [Webhook] VIP Reservation secured & Deposit Escrowed (Ref: ${reference})`);
 
-            // 💡 NOTIFICATION INJECTION: Notify Host
             if (host && guest) {
               await NotificationService.sendPush(
                 host._id,
@@ -354,18 +391,30 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
           }
 
           case 'VIP_SERVICE': {
-            const newServiceReservation: any = await Reservation.create({
-              userId: metadata.userId,
-              propertyId: metadata.propertyId,
-              category: 'VIP_SERVICE',
-              checkInDate: new Date(metadata.checkInDate),
-              checkOutDate: new Date(metadata.checkOutDate),
-              guestsCount: 1, // Default for service
-              totalAmount: txData.amount / 100, 
-              paystackReference: reference,
-              paymentStatus: 'SUCCESS',
-              escrowStatus: 'HELD'
-            } as any);
+            let newServiceReservation: any;
+
+            if (metadata.reservationId) {
+              newServiceReservation = await Reservation.findByIdAndUpdate(metadata.reservationId, {
+                paymentStatus: 'SUCCESS',
+                escrowStatus: 'HELD',
+                reservationStatus: 'ACTIVE',
+                totalAmount: txData.amount / 100,
+                paystackReference: reference
+              }, { new: true });
+            } else {
+              newServiceReservation = await Reservation.create({
+                userId: metadata.userId,
+                propertyId: metadata.propertyId,
+                category: 'VIP_SERVICE',
+                checkInDate: new Date(metadata.checkInDate),
+                checkOutDate: new Date(metadata.checkOutDate),
+                guestsCount: 1, 
+                totalAmount: txData.amount / 100, 
+                paystackReference: reference,
+                paymentStatus: 'SUCCESS',
+                escrowStatus: 'HELD'
+              } as any);
+            }
 
             const property = await Property.findByIdAndUpdate(metadata.propertyId, {
               $push: {
@@ -397,7 +446,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
           default:
             console.warn(`⚠️ [Webhook] Unknown bookingType received: ${bookingType}`);
         }
-
+        
         if (guest && host) {
           EmailService.sendBookingSuccess({
             guestEmail: guest.email,
@@ -822,4 +871,74 @@ export const createWhatsappIntent = asyncHandler(async (req: Request, res: Respo
       error: error.message
     });
   }
+});
+
+export const generateConciergeCheckout = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { referenceCode, finalAmount } = req.body; 
+
+  if (!referenceCode || !finalAmount) {
+    return next(new AppError('Reference code and final amount are required.', 400));
+  }
+
+  // 1. Find the "Draft" reservation (Check both collections)
+  let isCar = false;
+  let reservation: any = await Reservation.findOne({ paystackReference: referenceCode }).populate('userId');
+
+  if (!reservation) {
+    reservation = await CarReservation.findOne({ paystackReference: referenceCode }).populate('userId');
+    isCar = true;
+    if (!reservation) return next(new AppError('No pending reservation found with this reference code.', 404));
+  }
+
+  if (reservation.paymentStatus === 'SUCCESS') {
+    return next(new AppError('This reservation has already been paid for.', 400));
+  }
+
+  const guest = reservation.userId;
+  if (!guest || !guest.email) {
+    return next(new AppError('Guest email is missing. Cannot generate payment link.', 400));
+  }
+
+  // 2. Map the correct booking type for the webhook
+  let bookingType = 'PROPERTY';
+  if (isCar) bookingType = 'CAR';
+  else if (reservation.category === 'HOTEL') bookingType = 'HOTEL';
+  else if (reservation.category === 'VIP' || reservation.category === 'VIP_RESERVATION') bookingType = 'VIP';
+  else if (reservation.category === 'VIP_SERVICE') bookingType = 'VIP_SERVICE';
+
+  // 3. Build the exact metadata Paystack needs to trigger your Webhook perfectly
+  const metadata = {
+    custom_fields: [
+      { display_name: "Asset ID", variable_name: "propertyId", value: isCar ? reservation.carId.toString() : reservation.propertyId.toString() },
+      { display_name: "User ID", variable_name: "userId", value: guest._id.toString() },
+      { display_name: "Check In", variable_name: "checkInDate", value: isCar ? reservation.pickupTime : reservation.checkInDate },
+      { display_name: "Check Out", variable_name: "checkOutDate", value: isCar ? reservation.dropoffTime : reservation.checkOutDate },
+      { display_name: "Booking Type", variable_name: "bookingType", value: bookingType },
+      // CRITICAL: Pass the Draft ID so the webhook knows to UPDATE it, not create a duplicate
+      { display_name: "Reservation ID", variable_name: "reservationId", value: reservation._id.toString() } 
+    ]
+  };
+
+  // 4. Hit Paystack to generate the secure link
+  const paystackData = await PaystackService.initializeTransaction(
+    guest.email,
+    finalAmount, 
+    metadata
+  );
+
+  // 5. Update the draft with the negotiated price and the REAL Paystack reference
+  reservation.totalAmount = finalAmount;
+  reservation.paystackReference = paystackData.reference; 
+  await reservation.save();
+
+  // 6. Return the link to the Concierge
+  res.status(200).json({
+    status: 'success',
+    message: 'Secure checkout link generated successfully',
+    data: {
+      checkoutUrl: paystackData.authorization_url,
+      finalAmount: finalAmount,
+      guestName: guest.firstName
+    }
+  });
 });
