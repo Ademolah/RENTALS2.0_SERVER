@@ -3,14 +3,16 @@ import mongoose from 'mongoose';
 
 // --- ENUMS & LITERALS ---
 export type UserRole = 'USER' | 'LANDLORD' | 'ADMIN'; 
-export type PropertyCategory = 'CAR RENTAL' | 'SHORTLET' | 'VIP RESERVATION' | 'HOTEL' | 'VIP_SERVICE'; 
+// 💡 FIX: Added 'VIP' to PropertyCategory
+export type PropertyCategory = 'CAR RENTAL' | 'SHORTLET' | 'VIP RESERVATION' | 'VIP' | 'HOTEL' | 'VIP_SERVICE'; 
 export type PaymentStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'REFUNDED';
-// SURGICAL FIX: Added 'PENDING' without removing existing statuses
-export type ReservationStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+// 💡 FIX: Added 'WHATSAPP_INITIATED'
+export type ReservationStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED' | 'WHATSAPP_INITIATED';
 
 // --- DOMAIN INTERFACES ---
 
-export type PayoutStatus = 'HELD_IN_ESCROW' | 'RELEASED_TO_LANDLORD' | 'DIRECT_TO_RENTALS' | 'REFUNDED';
+// 💡 FIX: Merged landlord/owner and added REFUND_PENDING
+export type PayoutStatus = 'HELD_IN_ESCROW' | 'RELEASED_TO_LANDLORD' | 'RELEASED_TO_OWNER' | 'DIRECT_TO_RENTALS' | 'REFUNDED' | 'REFUND_PENDING';
 
 export type CarCategory = 'LUXURY' | 'SUV' | 'SEDAN' | 'CHAUFFEUR_DRIVEN' | 'VAN';
 export type Transmission = 'AUTOMATIC' | 'MANUAL';
@@ -92,12 +94,15 @@ export interface ICarReservation {
   dropoffTime: Date;
   guestConfirmedPickup: boolean;
   ownerConfirmedHandover: boolean; 
-  escrowStatus: 'HELD' | 'RELEASED' | 'REFUNDED'; 
+  // 💡 FIX: Added 'PENDING' and 'CANCELLED'
+  escrowStatus: 'PENDING' | 'HELD' | 'RELEASED' | 'REFUNDED' | 'CANCELLED'; 
   totalAmount: number;
-  paymentStatus: 'PENDING' | 'SUCCESS' | 'FAILED' | 'REFUNDED';
-  reservationStatus: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+  paymentStatus: PaymentStatus;
+  // 💡 FIX: Connected to global ReservationStatus type
+  reservationStatus: ReservationStatus;
   paystackReference?: string;
-  payoutStatus: 'HELD_IN_ESCROW' | 'RELEASED_TO_OWNER' | 'DIRECT_TO_RENTALS' | 'REFUNDED';
+  // 💡 FIX: Connected to global PayoutStatus type
+  payoutStatus: PayoutStatus;
   isRentalsCar: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -181,8 +186,8 @@ export interface IReservation {
   propertyId: Types.ObjectId; 
   userId: Types.ObjectId;     
   
-  // SURGICAL FIX: Optional VIP/Dashboard Fields
-  category?: 'SHORTLET' | 'HOTEL' | 'VIP_RESERVATION';
+  // 💡 FIX: Added VIP and VIP_SERVICE to align with global PropertyCategory
+  category?: 'SHORTLET' | 'HOTEL' | 'VIP_RESERVATION' | 'VIP' | 'VIP_SERVICE';
   expectedArrivalTime?: string;
 
   checkInDate: Date;

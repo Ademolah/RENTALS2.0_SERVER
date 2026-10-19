@@ -446,7 +446,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
           default:
             console.warn(`⚠️ [Webhook] Unknown bookingType received: ${bookingType}`);
         }
-        
+
         if (guest && host) {
           EmailService.sendBookingSuccess({
             guestEmail: guest.email,
@@ -939,6 +939,26 @@ export const generateConciergeCheckout = asyncHandler(async (req: Request, res: 
       checkoutUrl: paystackData.authorization_url,
       finalAmount: finalAmount,
       guestName: guest.firstName
+    }
+  });
+});
+
+export const getPendingWhatsappDrafts = asyncHandler(async (req: Request, res: Response) => {
+  // Fetch pending drafts from both collections
+  const pendingProperties = await Reservation.find({ reservationStatus: 'WHATSAPP_INITIATED' })
+    .populate('propertyId', 'title category address')
+    .populate('userId', 'firstName lastName email phoneNumber')
+    .sort('-createdAt');
+
+  const pendingCars = await CarReservation.find({ reservationStatus: 'WHATSAPP_INITIATED' })
+    .populate('carId', 'make model year')
+    .populate('userId', 'firstName lastName email phoneNumber')
+    .sort('-createdAt');
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      drafts: [...pendingProperties, ...pendingCars].sort((a: any, b: any) => b.createdAt - a.createdAt)
     }
   });
 });
