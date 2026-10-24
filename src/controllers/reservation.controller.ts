@@ -577,7 +577,12 @@ export const getMyBookings = asyncHandler(async (req: Request, res: Response, ne
   const bookings = await Reservation.find({ userId })
     .populate({
       path: 'propertyId',
-      select: 'title category address images pricePerNight',
+      // 💡 Added ownerId to the base select so the nested populate can resolve it
+      select: 'title category address images pricePerNight ownerId',
+      populate: {
+        path: 'ownerId',
+        select: 'firstName lastName phoneNumber'
+      }
     })
     .sort('-createdAt');
 
@@ -959,6 +964,90 @@ export const getPendingWhatsappDrafts = asyncHandler(async (req: Request, res: R
     status: 'success',
     data: {
       drafts: [...pendingProperties, ...pendingCars].sort((a: any, b: any) => b.createdAt - a.createdAt)
+    }
+  });
+});
+
+
+export const checkFirstBookingDiscount = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const userId = req.user?._id?.toString();
+
+  if (!userId) {
+    return next(new AppError('Authentication context missing.', 401));
+  }
+
+  // Verify if the guest has any successfully paid transactions on the platform
+  const paidProperties = await Reservation.countDocuments({ 
+    userId, 
+    paymentStatus: 'SUCCESS' 
+  });
+  
+  const paidCars = await CarReservation.countDocuments({ 
+    userId, 
+    paymentStatus: 'SUCCESS' 
+  });
+
+  const isEligible = (paidProperties + paidCars) === 0;
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      eligible: isEligible,
+      percent: isEligible ? 5 : 0,
+      label: isEligible ? "5% off your first booking" : null
+    }
+  });
+});
+
+export const getArrivalGuide = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { id } = req.params;
+  const requesterId = req.user?._id?.toString();
+  const isAdmin = req.user?.role === 'ADMIN';
+
+  if (!requesterId) {
+    return next(new AppError('Authentication context missing.', 401));
+  }
+
+  let isCar = false;
+  
+  // 1. Search for the reservation in properties
+  let reservation: any = await Reservation.findById(id).populate('propertyId');
+  
+  // 2. If not found, search in cars
+  if (!reservation) {
+    reservation = await CarReservation.findById(id).populate('carId');
+    isCar = true;
+  }
+
+  if (!reservation) {
+    return next(new AppError('Reservation not found.', 404));
+  }
+
+  // 3. Extract IDs for authorization
+  const guestId = reservation.userId.toString();
+  // Handle edge case if asset was deleted
+  if (!reservation.propertyId && !reservation.carId) {
+     return next(new AppError('The associated asset no longer exists.', 404));
+  }
+  const asset = isCar ? reservation.carId : reservation.propertyId;
+  const ownerId = asset.ownerId.toString();
+
+  // 4. Strict Authorization Check (Must be Guest, Host, or Admin)
+  if (requesterId !== guestId && requesterId !== ownerId && !isAdmin) {
+    return next(new AppError('Not authorized to view this arrival guide.', 403));
+  }
+
+  // 5. Enforce "Paid Bookings Only" for guests[cite: 7]
+  if (requesterId === guestId && reservation.paymentStatus !== 'SUCCESS') {
+    return next(new AppError('Arrival guide is only available after a successful payment.', 403));
+  }
+
+  // 6. Return the private data[cite: 7]
+  res.status(200).json({
+    status: 'success',
+    data: {
+      notes: asset.arrivalNotes || null,
+      photos: asset.arrivalPhotos || []
     }
   });
 });

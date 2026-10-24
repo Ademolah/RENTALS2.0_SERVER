@@ -370,7 +370,12 @@ export const getMyCarBookings = asyncHandler(async (req: Request, res: Response,
   const bookings = await CarReservation.find({ userId })
     .populate({
       path: 'carId',
-      select: 'make carModel year category location images pricePer12Hours', 
+      // 💡 Added ownerId to the base select
+      select: 'make carModel year category location images pricePer12Hours ownerId', 
+      populate: {
+        path: 'ownerId',
+        select: 'firstName lastName phoneNumber'
+      }
     })
     .sort('-createdAt');
 
@@ -535,3 +540,4 @@ export const checkCarAvailability = asyncHandler(async (req: Request, res: Respo
     message: 'Vehicle is available for these dates!' 
   });
 });
+
