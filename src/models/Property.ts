@@ -1,6 +1,8 @@
 import { Schema, model } from 'mongoose';
 import { IPropertyDocument, IRoomType } from '../types/index.js';
 
+const arrayLimit = (val: string[]) => val.length <= 5;
+
 const roomTypeSchema = new Schema<IRoomType>({
   name: { type: String, required: true },
   pricePerNight: { type: Number, required: true },
@@ -16,32 +18,21 @@ const roomTypeSchema = new Schema<IRoomType>({
 
 const propertySchema = new Schema<IPropertyDocument>(
   {
-    // Auto-generated 5-digit ID
     propertyId: { type: String, unique: true },
-    
     title: { type: String, required: true, trim: true },
     description: { type: String, required: true },
-    
-    // NEW: Admin Approval Status Workflow
     status: { 
       type: String, 
       enum: ['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'], 
       default: 'PENDING' 
     },
-
     category: { 
       type: String, 
       enum: ['CAR RENTAL', 'SHORTLET', 'VIP RESERVATION', 'HOTEL', 'VIP_SERVICE'], 
       required: true 
     },
-    rating: {
-      type: Number,
-      default: 0,
-    },
-    numReviews: {
-      type: Number,
-      default: 0,
-    },
+    rating: { type: Number, default: 0 },
+    numReviews: { type: Number, default: 0 },
     startingPrice: { type: Number },
     hasBreakfast: { type: Boolean, default: false },
     roomTypes: {
@@ -57,7 +48,6 @@ const propertySchema = new Schema<IPropertyDocument>(
       }
     },
     ownerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    
     pricePerNight: { 
       type: Number, 
       required: function(this: any) { 
@@ -77,19 +67,33 @@ const propertySchema = new Schema<IPropertyDocument>(
       }
     },
     amenities: [{ type: String }],
-    
-    // NEW & FIXED: Media and Security Fields (No Duplicates)
     images: [{ type: String }], 
     video: { type: String }, 
     imageHashes: [{ type: String, select: false }], 
 
-    // FIXED: Availability Fields (No Duplicates)
-    isAvailable: { type: Boolean, default: true },
-    nextAvailableDate: {
-      type: Date,
-      default: null 
+    // --- MOBILE APP INJECTIONS ---
+    checkInTime: {
+      type: String,
+      trim: true,
+      default: "14:00" 
     },
-    
+    checkOutTime: {
+      type: String,
+      trim: true,
+      default: "11:00"
+    },
+    arrivalNotes: {
+      type: String,
+      maxlength: [1000, 'Arrival notes cannot exceed 1000 characters.']
+    },
+    arrivalPhotos: [{
+      type: String,
+      validate: [arrayLimit, 'You can only upload a maximum of 5 arrival photos.']
+    }],
+    // -----------------------------
+
+    isAvailable: { type: Boolean, default: true },
+    nextAvailableDate: { type: Date, default: null },
     bookedDates: [
       {
         startDate: { type: Date, required: true },
@@ -100,12 +104,9 @@ const propertySchema = new Schema<IPropertyDocument>(
     ],
     maxGuests: { 
       type: Number, 
-      required: function(this: any) { 
-        return this.category === 'SHORTLET'; 
-      }, 
+      required: function(this: any) { return this.category === 'SHORTLET'; }, 
       min: 1 
     },
-
     establishmentType: {
       type: String,
       required: function(this: any) { return this.category === 'VIP RESERVATION'; }
@@ -117,35 +118,26 @@ const propertySchema = new Schema<IPropertyDocument>(
       close: { type: String },
       daysOpen: [{ type: String }]
     },
-    
-    // Bedrooms and Bathrooms for Shortlets
     bedrooms: {
       type: Number,
-      required: function(this: any) {
-        return this.category === 'SHORTLET';
-      },
+      required: function(this: any) { return this.category === 'SHORTLET'; },
       min: 1
     },
     bathrooms: {
       type: Number,
-      required: function(this: any) {
-        return this.category === 'SHORTLET';
-      },
+      required: function(this: any) { return this.category === 'SHORTLET'; },
       min: 1
     }
   },
   { timestamps: true }
 );
 
-// Pre-save middleware to automatically generate a 5-digit propertyId
 propertySchema.pre('save', async function () {
   if (!this.propertyId) {
-    // Generates a random number between 10000 and 99999
     this.propertyId = Math.floor(10000 + Math.random() * 90000).toString();
   }
 });
 
-// Performance Indexes for search queries
 propertySchema.index({ 'address.city': 1, 'address.state': 1 });
 propertySchema.index({ category: 1, isAvailable: 1 });
 propertySchema.index({ pricePerNight: 1 });

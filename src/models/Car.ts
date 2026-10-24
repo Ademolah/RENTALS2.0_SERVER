@@ -1,6 +1,8 @@
 import { Schema, model } from 'mongoose';
 import { ICarDocument } from '../types/index.js';
 
+const arrayLimit = (val: string[]) => val.length <= 5;
+
 const carSchema = new Schema<ICarDocument>(
   {
     make: { type: String, required: true, trim: true },
@@ -15,11 +17,28 @@ const carSchema = new Schema<ICarDocument>(
     ownerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     pricePer12Hours: { type: Number, required: true, min: 0 },
     currency: { type: String, default: 'NGN' },
+    
+    // --- MOBILE APP INJECTIONS ---
     location: {
       city: { type: String, required: true },
       state: { type: String, required: true },
-      address: { type: String }
+      address: { type: String },
+      // Added coordinates directly to the location object
+      coordinates: {
+        lat: { type: Number },
+        lng: { type: Number }
+      }
     },
+    arrivalNotes: {
+      type: String,
+      maxlength: [1000, 'Pickup instructions cannot exceed 1000 characters.']
+    },
+    arrivalPhotos: [{
+      type: String,
+      validate: [arrayLimit, 'You can only upload a maximum of 5 pickup location photos.']
+    }],
+    // -----------------------------
+
     seatNumber: {type: String, required: true},
     description: {
       type: String,
@@ -46,7 +65,6 @@ const carSchema = new Schema<ICarDocument>(
   { timestamps: true }
 );
 
-// Indexes for high-performance fleet searching
 carSchema.index({ 'location.city': 1, 'location.state': 1 });
 carSchema.index({ category: 1, isAvailable: 1 });
 

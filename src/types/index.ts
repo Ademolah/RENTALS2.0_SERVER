@@ -3,15 +3,11 @@ import mongoose from 'mongoose';
 
 // --- ENUMS & LITERALS ---
 export type UserRole = 'USER' | 'LANDLORD' | 'ADMIN'; 
-// 💡 FIX: Added 'VIP' to PropertyCategory
 export type PropertyCategory = 'CAR RENTAL' | 'SHORTLET' | 'VIP RESERVATION' | 'VIP' | 'HOTEL' | 'VIP_SERVICE'; 
 export type PaymentStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'REFUNDED';
-// 💡 FIX: Added 'WHATSAPP_INITIATED'
 export type ReservationStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED' | 'WHATSAPP_INITIATED';
 
 // --- DOMAIN INTERFACES ---
-
-// 💡 FIX: Merged landlord/owner and added REFUND_PENDING
 export type PayoutStatus = 'HELD_IN_ESCROW' | 'RELEASED_TO_LANDLORD' | 'RELEASED_TO_OWNER' | 'DIRECT_TO_RENTALS' | 'REFUNDED' | 'REFUND_PENDING';
 
 export type CarCategory = 'LUXURY' | 'SUV' | 'SEDAN' | 'CHAUFFEUR_DRIVEN' | 'VAN';
@@ -58,11 +54,20 @@ export interface ICar {
   ownerId: Types.ObjectId; 
   pricePer12Hours: number;
   currency: string;
+  
+  // 💡 INJECTED: Mobile App Additions (Coordinates, Arrival Info)
   location: {
     city: string;
     state: string;
     address?: string;
+    coordinates?: {
+      lat: number;
+      lng: number;
+    };
   };
+  arrivalNotes?: string;
+  arrivalPhotos?: string[];
+  
   description: string;
   seatNumber: string;
   features: string[]; 
@@ -94,14 +99,11 @@ export interface ICarReservation {
   dropoffTime: Date;
   guestConfirmedPickup: boolean;
   ownerConfirmedHandover: boolean; 
-  // 💡 FIX: Added 'PENDING' and 'CANCELLED'
   escrowStatus: 'PENDING' | 'HELD' | 'RELEASED' | 'REFUNDED' | 'CANCELLED'; 
   totalAmount: number;
   paymentStatus: PaymentStatus;
-  // 💡 FIX: Connected to global ReservationStatus type
   reservationStatus: ReservationStatus;
   paystackReference?: string;
-  // 💡 FIX: Connected to global PayoutStatus type
   payoutStatus: PayoutStatus;
   isRentalsCar: boolean;
   createdAt: Date;
@@ -170,6 +172,13 @@ export interface IProperty {
   };
   amenities: string[];
   images: string[]; 
+  
+  // 💡 INJECTED: Mobile App Additions (Check-in/out times, Arrival Info)
+  checkInTime?: string;
+  checkOutTime?: string;
+  arrivalNotes?: string;
+  arrivalPhotos?: string[];
+  
   isAvailable: boolean;
   nextAvailableDate?: Date;
   bookedDates: {
@@ -185,11 +194,8 @@ export interface IProperty {
 export interface IReservation {
   propertyId: Types.ObjectId; 
   userId: Types.ObjectId;     
-  
-  // 💡 FIX: Added VIP and VIP_SERVICE to align with global PropertyCategory
   category?: 'SHORTLET' | 'HOTEL' | 'VIP_RESERVATION' | 'VIP' | 'VIP_SERVICE';
   expectedArrivalTime?: string;
-
   checkInDate: Date;
   checkOutDate: Date;
   roomTypeId?: Types.ObjectId;
