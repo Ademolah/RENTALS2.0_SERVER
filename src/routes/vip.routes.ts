@@ -11,7 +11,7 @@ import {
   initiateVipServiceBooking, 
   updateVipEstablishment, 
   getVipServices,
-  getVipServiceById
+  getVipServiceById, updateVipService, deleteVipService
 } from '../controllers/vip.controller.js';
 import { protect, restrictTo } from '../middlewares/auth.middleware.js';
 import { upload } from '../middlewares/upload.middleware.js'; // Adjust path based on your multer config
@@ -71,6 +71,21 @@ router.put(
   restrictTo('LANDLORD', 'ADMIN'), 
   upload.array('images', 10), 
   updateVipEstablishment
+);
+
+router.patch(
+  '/services/:id', 
+  protect, 
+  restrictTo('LANDLORD', 'ADMIN'), 
+  upload.array('images', 5), 
+  updateVipService
+);
+
+router.delete(
+  '/services/:id', 
+  protect, 
+  restrictTo('LANDLORD', 'ADMIN'), 
+  deleteVipService
 );
 
 router.get('/services/:id', getVipServiceById);

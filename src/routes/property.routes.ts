@@ -9,7 +9,7 @@ import {
   deleteProperty
 } from '../controllers/property.controller.js';
 import { protect, restrictTo } from '../middlewares/auth.middleware.js';
-import { propertyMediaUpload, upload } from '../middlewares/upload.middleware.js';
+import { propertyMediaUpload } from '../middlewares/upload.middleware.js';
 import { validateAndHashMedia } from '../middlewares/mediaValidator.middleware.js';
 
 const router = Router();

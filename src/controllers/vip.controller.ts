@@ -379,9 +379,7 @@ export const deleteVipEstablishment = asyncHandler(async (req: Request, res: Res
 // ==========================================
 // 9. CREATE VIP SERVICE (e.g., Armed Escort, Security)
 // ==========================================
-// ==========================================
-// 9. CREATE VIP SERVICE (e.g., Armed Escort, Security)
-// ==========================================
+
 export const createVipService = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   // 💡 FIX: Added 'street' to the destructured body
   const { title, description, serviceType, pricePerDay, street, state, city, services } = req.body;
@@ -517,5 +515,112 @@ export const getVipServiceById = asyncHandler(async (req: Request, res: Response
   res.status(200).json({
     status: 'success',
     data: { service }
+  });
+});
+
+// ==========================================
+// 12. UPDATE VIP SERVICE
+// ==========================================
+export const updateVipService = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { id } = req.params;
+  const updateData = { ...req.body };
+
+  // 1. Ensure 'id' is valid
+  if (typeof id !== 'string' || !Types.ObjectId.isValid(id)) {
+    return next(new AppError('Invalid or missing ID format', 400));
+  }
+
+  const service = await Property.findOne({ 
+    _id: new Types.ObjectId(id), 
+    category: 'VIP_SERVICE' 
+  });
+  
+  if (!service) {
+    return next(new AppError('VIP Service not found', 404));
+  }
+
+  // 2. Ensure only the owner or an admin can edit
+  const isOwner = service.ownerId.toString() === req.user?._id?.toString();
+  const isAdmin = req.user?.role === 'ADMIN';
+
+  if (!isOwner && !isAdmin) {
+    return next(new AppError('You do not have permission to edit this service.', 403));
+  }
+
+  // 3. Handle parsed JSON fields from FormData
+  if (updateData.services && typeof updateData.services === 'string') {
+    try { updateData.services = JSON.parse(updateData.services); } catch(e) {}
+  }
+
+  // Map price update
+  if (updateData.pricePerDay) {
+    updateData.pricePerNight = Number(updateData.pricePerDay);
+  }
+  
+  if (updateData.serviceType) {
+    updateData.establishmentType = updateData.serviceType;
+  }
+
+  // 4. Handle Cloudinary Image Updates
+  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+    const newImages = await CloudinaryService.uploadMultipleImages(req.files);
+    let existingImages = updateData.existingImages ? JSON.parse(updateData.existingImages) : service.images;
+    updateData.images = [...existingImages, ...newImages];
+  } else if (updateData.existingImages) {
+    updateData.images = JSON.parse(updateData.existingImages);
+  }
+
+  const updatedService = await Property.findByIdAndUpdate(id, updateData, { 
+    new: true, runValidators: true 
+  });
+
+  res.status(200).json({
+    status: 'success',
+    data: { service: updatedService }
+  });
+});
+
+// ==========================================
+// 13. DELETE VIP SERVICE
+// ==========================================
+export const deleteVipService = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { id } = req.params;
+
+  if (typeof id !== 'string' || !Types.ObjectId.isValid(id)) {
+    return next(new AppError('Invalid or missing ID format', 400));
+  }
+
+  const service = await Property.findOne({ 
+    _id: new Types.ObjectId(id), 
+    category: 'VIP_SERVICE' 
+  });
+  
+  if (!service) {
+    return next(new AppError('VIP Service not found', 404));
+  }
+
+  const isOwner = service.ownerId.toString() === req.user?._id?.toString();
+  const isAdmin = req.user?.role === 'ADMIN';
+
+  if (!isOwner && !isAdmin) {
+    return next(new AppError('You do not have permission to delete this service.', 403));
+  }
+
+  // Prevent deletion if there are ACTIVE future bookings
+  const activeBookingsCount = await Reservation.countDocuments({
+    propertyId: id,
+    reservationStatus: 'ACTIVE',
+    checkOutDate: { $gte: new Date() }
+  });
+
+  if (activeBookingsCount > 0) {
+    return next(new AppError('Cannot delete this service. It currently has active future reservations.', 400));
+  }
+
+  await Property.findByIdAndDelete(id);
+
+  res.status(204).json({
+    status: 'success',
+    data: null
   });
 });
