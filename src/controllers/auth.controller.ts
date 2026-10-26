@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import jwt from 'jsonwebtoken';
+import { OAuth2Client } from 'google-auth-library';
+import appleSignin from 'apple-signin-auth';
 import { User } from '../models/User.js';
 import { AuthService } from '../services/auth.service.js';
 import { EmailService } from '../services/email.service.js'; 
@@ -8,7 +10,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 
 const FRONTEND_BASE_URL = process.env.FRONTEND_URL;
-
+const googleClient = new OAuth2Client();
 
 export const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -40,7 +42,6 @@ export const registerLimiter = rateLimit({
   message: { status: 'fail', message: 'Too many accounts created from this IP. Please try again later.' }
 });
 
-
 export const registerUser = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { email, password, firstName, lastName, role, phoneNumber } = req.body;
 
@@ -55,18 +56,16 @@ export const registerUser = asyncHandler(async (req: Request, res: Response, nex
 
   const assignedRole = role === 'ADMIN' ? 'USER' : role; 
   
-  // 💡 Generate 6-digit OTP and 15-minute expiry
   const otpCode = Math.floor(100000 + Math.random() * 900000).toString(); 
   const otpExpiry = new Date(Date.now() + 15 * 60 * 1000); 
 
-  const existingUser = await User.findOne({ email });
+  const existingUser = await User.findOne({ email: email.toLowerCase() });
 
   if (existingUser) {
     if (existingUser.isVerified) {
       return next(new AppError('Email is already registered and verified.', 400));
     }
     
-    // 💡 If unverified, update their details and send a fresh OTP so they don't get locked out
     existingUser.verificationCode = otpCode;
     existingUser.verificationCodeExpires = otpExpiry;
     existingUser.passwordHash = await AuthService.hashPassword(password);
@@ -86,7 +85,7 @@ export const registerUser = asyncHandler(async (req: Request, res: Response, nex
   const passwordHash = await AuthService.hashPassword(password);
 
   const newUser = await User.create({
-    email,
+    email: email.toLowerCase(),
     passwordHash,
     firstName,
     lastName,
@@ -97,14 +96,12 @@ export const registerUser = asyncHandler(async (req: Request, res: Response, nex
     verificationCodeExpires: otpExpiry
   });
 
-  // 💡 Send the OTP email immediately upon creation instead of the Welcome Email
   await EmailService.sendEmailVerification({ 
     to: newUser.email, 
     firstName: newUser.firstName, 
     otpCode 
   });
 
-  // 💡 Return a pending status. No token is returned yet.
   res.status(201).json({
     status: 'pending',
     message: 'Registration initiated. Please check your email for the verification code.'
@@ -118,7 +115,7 @@ export const loginUser = asyncHandler(async (req: Request, res: Response, next: 
     return next(new AppError('Please provide email and password', 400));
   }
 
-  const user = await User.findOne({ email }).select('+passwordHash');
+  const user = await User.findOne({ email: email.toLowerCase() }).select('+passwordHash');
 
   if (!user || !(await AuthService.comparePasswords(password, user.passwordHash))) {
     return next(new AppError('Incorrect email or password', 401));
@@ -134,12 +131,136 @@ export const loginUser = asyncHandler(async (req: Request, res: Response, next: 
   });
 });
 
+// ==========================================
+// GOOGLE SIGN IN
+// ==========================================
+export const googleSignIn = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { idToken, pushToken } = req.body;
+
+  if (!idToken) {
+    return next(new AppError('Google ID token is required.', 400));
+  }
+
+  const audience = [
+    process.env.GOOGLE_CLIENT_ID_IOS,
+    process.env.GOOGLE_CLIENT_ID_ANDROID,
+    process.env.GOOGLE_CLIENT_ID_WEB
+  ].filter(Boolean) as string[];
+
+  let payload;
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      ...(audience.length > 0 && { audience })
+    });
+    payload = ticket.getPayload();
+  } catch (err) {
+    return next(new AppError('Invalid or expired Google token.', 401));
+  }
+
+  if (!payload || !payload.email) {
+    return next(new AppError('Invalid Google token payload.', 401));
+  }
+
+  const { email, given_name, family_name, email_verified } = payload;
+  const userEmail = email.toLowerCase();
+
+  let user = await User.findOne({ email: userEmail });
+
+  if (!user) {
+    user = await User.create({
+      email: userEmail,
+      firstName: given_name || 'User',
+      lastName: family_name || '',
+      passwordHash: 'SOCIAL_LOGIN_NO_PASSWORD',
+      role: 'USER',
+      isVerified: email_verified ?? true,
+      pushTokens: pushToken ? [pushToken] : []
+    });
+  } else {
+    if (pushToken) {
+      if (!user.pushTokens) user.pushTokens = [];
+      if (!user.pushTokens.includes(pushToken)) {
+        user.pushTokens.push(pushToken);
+        await user.save({ validateBeforeSave: false });
+      }
+    }
+  }
+
+  const token = AuthService.generateToken(user._id.toString());
+  user.passwordHash = undefined as any;
+
+  res.status(200).json({
+    status: 'success',
+    token,
+    data: { user }
+  });
+});
+
+// ==========================================
+// APPLE SIGN IN
+// ==========================================
+export const appleSignIn = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { idToken, pushToken, firstName, lastName } = req.body;
+
+  if (!idToken) {
+    return next(new AppError('Apple ID token is required.', 400));
+  }
+
+  let payload;
+  try {
+    payload = await appleSignin.verifyIdToken(idToken, {
+      audience: process.env.APPLE_BUNDLE_ID,
+      ignoreExpiration: false
+    });
+  } catch (err) {
+    return next(new AppError('Invalid or expired Apple token.', 401));
+  }
+
+  const email = payload.email;
+  if (!email) {
+    return next(new AppError('Invalid Apple token payload or missing email.', 401));
+  }
+
+  const userEmail = email.toLowerCase();
+  let user = await User.findOne({ email: userEmail });
+
+  if (!user) {
+    user = await User.create({
+      email: userEmail,
+      firstName: firstName || 'Apple',
+      lastName: lastName || 'User',
+      passwordHash: 'SOCIAL_LOGIN_NO_PASSWORD',
+      role: 'USER',
+      isVerified: true,
+      pushTokens: pushToken ? [pushToken] : []
+    });
+  } else {
+    if (pushToken) {
+      if (!user.pushTokens) user.pushTokens = [];
+      if (!user.pushTokens.includes(pushToken)) {
+        user.pushTokens.push(pushToken);
+        await user.save({ validateBeforeSave: false });
+      }
+    }
+  }
+
+  const token = AuthService.generateToken(user._id.toString());
+  user.passwordHash = undefined as any;
+
+  res.status(200).json({
+    status: 'success',
+    token,
+    data: { user }
+  });
+});
+
 // --- ACCOUNT RECOVERY ---
 export const forgotPassword = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { email } = req.body;
   if (!email) return next(new AppError('Please provide your email address.', 400));
 
-  const user = await User.findOne({ email });
+  const user = await User.findOne({ email: email.toLowerCase() });
   if (!user) {
     return next(new AppError('There is no user with that email address.', 404));
   }
@@ -150,8 +271,6 @@ export const forgotPassword = asyncHandler(async (req: Request, res: Response, n
   try {
     EmailService.sendPasswordReset({ to: user.email, firstName: user.firstName, resetUrl }).catch(console.error);
     
-    // 💡 AUDIT FIX: Removed `data: { resetToken }` to prevent token leakage. 
-    // The token is now ONLY sent via the EmailService.
     res.status(200).json({
       status: 'success',
       message: 'Password reset link sent to email.'
@@ -198,7 +317,6 @@ export const verifyEmail = asyncHandler(async (req: Request, res: Response, next
     return next(new AppError('Please provide both email and verification code.', 400));
   }
 
-  // Find user with matching email, exact OTP, and ensure OTP hasn't expired
   const user = await User.findOne({ 
     email: email.toLowerCase(),
     verificationCode: otpCode,
@@ -209,20 +327,17 @@ export const verifyEmail = asyncHandler(async (req: Request, res: Response, next
     return next(new AppError('Invalid or expired verification code.', 400));
   }
 
-  // Mark as verified and clear OTP fields from the database
   user.isVerified = true;
   user.verificationCode = undefined as any;
   user.verificationCodeExpires = undefined as any;
   await user.save();
 
-  // Now that they are verified, dispatch the Welcome Email
   EmailService.sendUserWelcome({
     to: user.email,
     firstName: user.firstName,
     exploreUrl: process.env.FRONTEND_URL || '' 
   }).catch(console.error); 
 
-  // Generate auth token and log them in immediately
   const token = AuthService.generateToken(user.id);
   user.passwordHash = undefined as any;
 
