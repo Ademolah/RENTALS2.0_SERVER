@@ -365,6 +365,21 @@ export const deleteVipEstablishment = asyncHandler(async (req: Request, res: Res
     return next(new AppError('Cannot delete this venue. It currently has active future reservations.', 400));
   }
 
+  // ==========================================
+  // 💡 INJECTED: Clean up Cloudinary Assets
+  // ==========================================
+  // Consolidate all media attached to this VIP establishment
+  const mediaToDelete: string[] = [...(establishment.images || [])];
+  
+  // Capture the video if a dedicated video field exists
+  if ((establishment as any).videoUrl) mediaToDelete.push((establishment as any).videoUrl);
+  if ((establishment as any).video) mediaToDelete.push((establishment as any).video);
+
+  if (mediaToDelete.length > 0) {
+    await CloudinaryService.deleteMultipleImages(mediaToDelete);
+  }
+  // ==========================================
+
   // 4. Safely delete the record
   await Property.findByIdAndDelete(id);
 
@@ -616,6 +631,21 @@ export const deleteVipService = asyncHandler(async (req: Request, res: Response,
   if (activeBookingsCount > 0) {
     return next(new AppError('Cannot delete this service. It currently has active future reservations.', 400));
   }
+
+  // ==========================================
+  // 💡 INJECTED: Clean up Cloudinary Assets
+  // ==========================================
+  // Consolidate all media attached to this VIP service
+  const mediaToDelete: string[] = [...(service.images || [])];
+  
+  // Capture the video if a dedicated video field exists for VIP services
+  if ((service as any).videoUrl) mediaToDelete.push((service as any).videoUrl);
+  if ((service as any).video) mediaToDelete.push((service as any).video);
+
+  if (mediaToDelete.length > 0) {
+    await CloudinaryService.deleteMultipleImages(mediaToDelete);
+  }
+  // ==========================================
 
   await Property.findByIdAndDelete(id);
 

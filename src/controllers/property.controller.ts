@@ -167,6 +167,21 @@ export const deleteHotel = asyncHandler(async (req: Request, res: Response, next
     return next(new AppError('You do not have permission to delete this hotel.', 403));
   }
 
+  // ==========================================
+  // 💡 INJECTED: Clean up Cloudinary Assets
+  // ==========================================
+  // Consolidate all media attached to this hotel
+  const mediaToDelete: string[] = [...(hotel.images || [])];
+  
+  // Capture the video if a dedicated video field exists
+  if ((hotel as any).videoUrl) mediaToDelete.push((hotel as any).videoUrl);
+  if ((hotel as any).video) mediaToDelete.push((hotel as any).video);
+
+  if (mediaToDelete.length > 0) {
+    await CloudinaryService.deleteMultipleImages(mediaToDelete);
+  }
+  // ==========================================
+
   await Property.findByIdAndDelete(hotelId);
 
   res.status(204).json({
@@ -630,6 +645,21 @@ export const deleteProperty = asyncHandler(async (req: Request, res: Response, n
   if (activeBookingsCount > 0) {
     return next(new AppError('Cannot delete this property. It currently has active future reservations.', 400));
   }
+
+  // ==========================================
+  // 💡 INJECTED: Clean up Cloudinary Assets
+  // ==========================================
+  // Consolidate all media attached to this property
+  const mediaToDelete: string[] = [...(property.images || [])];
+  
+  // If your schema uses a separate field for the video (e.g., videoUrl or video), capture it here
+  if ((property as any).videoUrl) mediaToDelete.push((property as any).videoUrl);
+  if ((property as any).video) mediaToDelete.push((property as any).video);
+
+  if (mediaToDelete.length > 0) {
+    await CloudinaryService.deleteMultipleImages(mediaToDelete);
+  }
+  // ==========================================
 
   await Property.findByIdAndDelete(propertyId);
 

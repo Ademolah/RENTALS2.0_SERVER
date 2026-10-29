@@ -8,7 +8,7 @@ import { AppError } from '../utils/AppError.js';
 import { CloudinaryService } from '../services/cloudinary.service.js';
 import { CarReservation } from '../models/CarReservation.js';
 import { EmailService } from '../services/email.service.js';
-import { NotificationService } from '../services/notification.service.js'; // 💡 INJECTED
+import { NotificationService } from '../services/notification.service.js';
 
 export const createCar = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const {
@@ -16,7 +16,6 @@ export const createCar = asyncHandler(async (req: Request, res: Response, next: 
     seatNumber, location, description, features
   } = req.body;
 
-  // 💡 Safely extract the fields object from our custom Multer middleware
   const files = req.files as { [fieldname: string]: Express.Multer.File[] } || {};
 
   if (!files.images || files.images.length === 0) {
@@ -49,9 +48,20 @@ export const createCar = asyncHandler(async (req: Request, res: Response, next: 
     return next(new AppError('Location (city and state) is strictly required.', 400));
   }
 
-  const parsedFeatures = typeof features === 'string' 
-    ? features.split(',').map((f) => f.trim()) 
-    : features;
+  // 💡 FIX: Safely parse features if it comes as a stringified JSON array
+  let parsedFeatures = [];
+  if (features) {
+    try {
+      parsedFeatures = typeof features === 'string' && features.startsWith('[')
+        ? JSON.parse(features)
+        : typeof features === 'string'
+          ? features.split(',').map(f => f.trim())
+          : features;
+    } catch (err) {
+      // Fallback if parsing fails
+      parsedFeatures = typeof features === 'string' ? features.split(',').map(f => f.trim()) : features;
+    }
+  }
 
   const newCar = await Car.create({
     make,
@@ -80,11 +90,9 @@ export const createCar = asyncHandler(async (req: Request, res: Response, next: 
   });
 });
 
-
 export const listCars = asyncHandler(async (req: Request, res: Response) => {
   const { city, category } = req.query;
   
-  // 💡 BULLETPROOF FIX: Initialize filter with the APPROVED lock
   const filter: any = { status: 'APPROVED' };
   
   if (city) filter['location.city'] = city;
@@ -100,7 +108,6 @@ export const listCars = asyncHandler(async (req: Request, res: Response) => {
 export const listAllCars = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { search, category, city, minPrice, maxPrice, limit = 10, page = 1, checkIn, checkOut } = req.query;
 
-  // 💡 BULLETPROOF FIX: Initialize query with the APPROVED lock
   const query: any = { status: 'APPROVED' };
 
   if (search) {
@@ -188,7 +195,6 @@ export const initiateCarBooking = asyncHandler(async (req: Request, res: Respons
     dropoffTime
   );
 
-  // 💡 NOTIFICATION INJECTION: Notify the Host that someone initiated a booking (Optional but helpful for visibility)
   const car = await Car.findById(carId).select('ownerId make carModel');
   if (car) {
     await NotificationService.sendPush(
@@ -291,7 +297,6 @@ export const confirmCarHandover = asyncHandler(async (req: Request, res: Respons
 
   if (isGuest) {
     reservation.guestConfirmedPickup = true;
-    // 💡 NOTIFICATION INJECTION: Notify Host that Guest confirmed pickup
     await NotificationService.sendPush(
       owner._id,
       "Pickup Confirmed! 🔑",
@@ -303,7 +308,6 @@ export const confirmCarHandover = asyncHandler(async (req: Request, res: Respons
   
   if (isOwner) {
     reservation.ownerConfirmedHandover = true;
-    // 💡 NOTIFICATION INJECTION: Notify Guest that Host confirmed handover
     await NotificationService.sendPush(
       guest._id,
       "Vehicle Handed Over! 🚗",
@@ -318,7 +322,6 @@ export const confirmCarHandover = asyncHandler(async (req: Request, res: Respons
     reservation.reservationStatus = 'ACTIVE'; 
     console.log(`[ESCROW RELEASED] Car Booking ${reservation._id} funds authorized for payout.`);
 
-    // 💡 NOTIFICATION INJECTION: Notify Host that Escrow is released
     await NotificationService.sendPush(
       owner._id,
       "Payout Authorized 💰",
@@ -370,7 +373,6 @@ export const getMyCarBookings = asyncHandler(async (req: Request, res: Response,
   const bookings = await CarReservation.find({ userId })
     .populate({
       path: 'carId',
-      // 💡 Added ownerId to the base select
       select: 'make carModel year category location images pricePer12Hours ownerId', 
       populate: {
         path: 'ownerId',
@@ -416,12 +418,10 @@ export const updateCar = asyncHandler(async (req: Request, res: Response, next: 
   
   let updateData = { ...req.body };
   
-  // 💡 Safely extract the fields object
   const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
 
   // 1. Handle incoming images
   if (files?.images && files.images.length > 0) {
-    // CloudinaryService.uploadMultipleImages must now accept the files.images array
     const newUploadedImages = await CloudinaryService.uploadMultipleImages(files.images);
     
     let keptImages = [];
@@ -432,7 +432,6 @@ export const updateCar = asyncHandler(async (req: Request, res: Response, next: 
     }
     updateData.images = [...keptImages, ...newUploadedImages];
 
-    // Append new hashes if your validator middleware generated them for the update
     if (req.body.imageHashes) {
       let keptHashes = [];
       if (updateData.existingImageHashes) {
@@ -451,9 +450,6 @@ export const updateCar = asyncHandler(async (req: Request, res: Response, next: 
       updateData.video = await CloudinaryService.uploadVideo(videoFile);
     }
   }
-
-  // If status needs to revert to PENDING upon major edits, you can force it here:
-  // updateData.status = 'PENDING';
 
   const car = await Car.findOneAndUpdate(
     { _id: carId, ownerId: userId } as any, 
@@ -541,3 +537,55 @@ export const checkCarAvailability = asyncHandler(async (req: Request, res: Respo
   });
 });
 
+// ==========================================
+// 💡 INJECTED: New Delete Car Controller
+// ==========================================
+export const deleteCar = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const carId = req.params.id as string;
+  const userId = req.user?._id?.toString();
+  const userRole = req.user?.role;
+
+  if (!carId || !mongoose.Types.ObjectId.isValid(carId)) {
+    return next(new AppError('Invalid vehicle ID format.', 400));
+  }
+
+  const car = await Car.findById(carId);
+  
+  if (!car) {
+    return next(new AppError('Vehicle not found.', 404));
+  }
+
+  const isAdmin = userRole === 'ADMIN';
+  const isOwner = car.ownerId.toString() === userId;
+
+  if (!isAdmin && !isOwner) {
+    return next(new AppError('You do not have permission to delete this vehicle.', 403));
+  }
+
+  // Prevent deletion if there are ACTIVE future bookings
+  const activeBookingsCount = await CarReservation.countDocuments({
+    carId: carId,
+    reservationStatus: 'ACTIVE',
+    dropoffTime: { $gte: new Date() }
+  });
+
+  if (activeBookingsCount > 0) {
+    return next(new AppError('Cannot delete this vehicle. It currently has active future reservations.', 400));
+  }
+
+  // 💡 Clean up Cloudinary Assets
+  const mediaToDelete: string[] = [...(car.images || [])];
+  if ((car as any).videoUrl) mediaToDelete.push((car as any).videoUrl);
+  if ((car as any).video) mediaToDelete.push((car as any).video);
+
+  if (mediaToDelete.length > 0) {
+    await CloudinaryService.deleteMultipleImages(mediaToDelete);
+  }
+
+  await Car.findByIdAndDelete(carId);
+
+  res.status(204).json({
+    status: 'success',
+    data: null
+  });
+});

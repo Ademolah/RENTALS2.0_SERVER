@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { 
     listCars, initiateCarBooking, createCar, getCarById, listAllCars, 
     confirmCarHandover, getMyCarBookings, getLandlordCars, 
-    getLandlordCarBookings, updateCar , checkCarAvailability
+    getLandlordCarBookings, updateCar , checkCarAvailability, deleteCar
 } from '../controllers/car.controller.js';
 import { protect, restrictTo } from '../middlewares/auth.middleware.js';
 import { propertyMediaUpload } from '../middlewares/upload.middleware.js'; 
@@ -61,5 +61,6 @@ router.patch(
   validateAndHashMedia,
   updateCar
 );
+router.delete('/:id', restrictTo('ADMIN', 'LANDLORD'), deleteCar);
 
 export default router;
