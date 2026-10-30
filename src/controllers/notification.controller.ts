@@ -86,6 +86,63 @@ export const markAsRead = asyncHandler(async (req: Request, res: Response, next:
   });
 });
 
+export const markAllAsRead = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const userId = req.user?._id;
+
+  if (!userId) {
+    return next(new AppError('Unauthorized access. User context missing.', 401));
+  }
+
+  await Notification.updateMany({ userId, isRead: false }, { isRead: true });
+
+  res.status(200).json({
+    status: 'success',
+    message: 'All notifications marked as read'
+  });
+});
+
+export const deleteNotification = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  // 💡 FIX 1: Explicitly cast to string so TS knows it isn't an array
+  const notificationId = req.params.id as string;
+  const userId = req.user?._id;
+
+  if (!userId) {
+    return next(new AppError('Unauthorized access. User context missing.', 401));
+  }
+
+  // 💡 FIX 2: Guard check guarantees to TS and Mongoose that it is not undefined
+  if (!notificationId) {
+    return next(new AppError('Notification ID is required.', 400));
+  }
+
+  // Now TS perfectly accepts notificationId as a valid query parameter!
+  const notification = await Notification.findOneAndDelete({ _id: notificationId, userId });
+
+  if (!notification) {
+    return next(new AppError('Notification not found or you do not have permission to delete it', 404));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: null
+  });
+});
+
+export const deleteAllNotifications = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const userId = req.user?._id;
+
+  if (!userId) {
+    return next(new AppError('Unauthorized access. User context missing.', 401));
+  }
+
+  await Notification.deleteMany({ userId });
+
+  res.status(200).json({
+    status: 'success',
+    data: null
+  });
+});
+
 // 💡 INJECTED: Route to remove a phone's push token on sign-out
 export const removePushToken = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { pushToken } = req.body;
