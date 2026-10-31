@@ -26,6 +26,7 @@ const propertySchema = new Schema<IPropertyDocument>(
       enum: ['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'], 
       default: 'PENDING' 
     },
+    rejectionReason: { type: String }, // 
     category: { 
       type: String, 
       enum: ['CAR RENTAL', 'SHORTLET', 'VIP RESERVATION', 'HOTEL', 'VIP_SERVICE'], 

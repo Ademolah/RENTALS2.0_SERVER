@@ -49,6 +49,7 @@ const carSchema = new Schema<ICarDocument>(
       enum: ['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'], 
       default: 'PENDING' 
     },
+    rejectionReason: { type: String }, // 💡 INJECTED: Mobile Team Request #4
     features: [{ type: String }],
     images: [{ type: String }],
     imageHashes: [{ type: String }], 

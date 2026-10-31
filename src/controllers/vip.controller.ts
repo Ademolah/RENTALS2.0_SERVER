@@ -87,9 +87,20 @@ export const createVipEstablishment = asyncHandler(async (req: Request, res: Res
 // 2. GET ALL VIP ESTABLISHMENTS
 // ==========================================
 export const getVipEstablishments = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const establishments = await Property.find({ category: 'VIP RESERVATION' })
+  const queryObj: any = { category: 'VIP RESERVATION' };
+
+  // 💡 FIX: Allow landlords to see their own pending/rejected VIP establishments
+  const requestingUserId = req.user?._id?.toString();
+  if (requestingUserId && req.query.ownerId === requestingUserId) {
+    queryObj.ownerId = req.query.ownerId; // Attach it if they passed it
+    // Leave status out so they see everything
+  } else {
+    queryObj.status = 'APPROVED'; // Enforce for all public guest queries
+  }
+
+  const establishments = await Property.find(queryObj)
     .select('-bookedDates') 
-    .sort('-createdAt'); // Match mongoose sort syntax
+    .sort('-createdAt'); 
 
   res.status(200).json({
     status: 'success',
@@ -441,8 +452,19 @@ export const createVipService = asyncHandler(async (req: Request, res: Response,
 // 10. GET ALL VIP SERVICES
 // ==========================================
 export const getVipServices = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const queryObj: any = { category: 'VIP_SERVICE' };
+
+  // 💡 FIX: Allow hosts to see their own pending/rejected VIP Services
+  const requestingUserId = req.user?._id?.toString();
+  if (requestingUserId && req.query.ownerId === requestingUserId) {
+    queryObj.ownerId = req.query.ownerId;
+    // Leave status out so they see everything
+  } else {
+    queryObj.status = 'APPROVED'; 
+  }
+
   // Only fetch VIP Services, excluding venues
-  const services = await Property.find({ category: 'VIP_SERVICE' })
+  const services = await Property.find(queryObj)
     .select('-bookedDates')
     .sort('-createdAt');
 

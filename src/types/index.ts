@@ -48,6 +48,7 @@ export interface ICar {
   imageHashes: string;
   video: string;
   year: number;
+  rejectionReason: string;
   status: string;
   category: CarCategory;
   transmission: Transmission;
@@ -143,6 +144,7 @@ export interface IProperty {
   rating: number;
   status : string;
   video: string;
+  rejectionReason: string;
   imageHashes: string[];
   numReviews: number;
   ownerId: Types.ObjectId; 

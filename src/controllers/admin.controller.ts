@@ -6,7 +6,8 @@ import { Property } from '../models/Property.js';
 import { Car } from '../models/Car.js';
 import { Reservation } from '../models/Reservation.js';
 import { CarReservation } from '../models/CarReservation.js';
-import  HostRequest  from '../models/HostRequest.js'; 
+import HostRequest from '../models/HostRequest.js'; 
+import { NotificationService } from '../services/notification.service.js'; // 💡 INJECTED: For Push Notifications
 
 // ==========================================
 // 1. PLATFORM OVERVIEW (STATS)
@@ -16,7 +17,6 @@ export const getDashboardStats = asyncHandler(async (req: Request, res: Response
   const totalHosts = await User.countDocuments({ role: 'LANDLORD' as any });
   const pendingHosts = await HostRequest.countDocuments({ status: 'PENDING' });
 
-  // 💡 NEW: Let the admin know how many properties are waiting for review
   const pendingAssets = await Property.countDocuments({ status: 'PENDING' });
 
   const totalShortlets = await Property.countDocuments({ category: 'SHORTLET' });
@@ -54,7 +54,6 @@ export const getDashboardStats = asyncHandler(async (req: Request, res: Response
     status: 'success',
     data: {
       users: { totalUsers, totalHosts, pendingHosts },
-      // 💡 NEW: pendingAssets added to the response payload
       assets: { totalShortlets, totalHotels, totalVip, totalCars, pendingAssets },
       financials: { 
         totalPlatformVolume, 
@@ -171,35 +170,47 @@ export const toggleAssetStatus = asyncHandler(async (req: Request, res: Response
 // 5. 💡 NEW: APPROVE / REJECT LISTING WORKFLOW
 // ==========================================
 export const updateAssetApprovalStatus = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  // Cast params explicitly as strings to satisfy TypeScript
   const { assetType, assetId } = req.params as { assetType: string; assetId: string };
-  const { status } = req.body;
+  const { status, rejectionReason } = req.body; // 💡 INJECTED: Extract rejection reason
 
   if (!assetType || !assetId) {
     return next(new AppError('Asset type and ID are required', 400));
   }
 
-  // Validate the incoming status string
   const validStatuses = ['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'];
   if (!validStatuses.includes(status)) {
     return next(new AppError(`Invalid status. Must be one of: ${validStatuses.join(', ')}`, 400));
   }
 
+  // Ensure admins provide a reason when rejecting
+  if (status === 'REJECTED' && !rejectionReason) {
+    return next(new AppError('A rejection reason is required when rejecting a listing.', 400));
+  }
+
+  // 💡 Build the update payload
+  const updatePayload: any = { status };
+  if (status === 'REJECTED') {
+    updatePayload.rejectionReason = rejectionReason;
+  } else if (status === 'APPROVED' || status === 'PENDING') {
+    updatePayload.rejectionReason = ''; // Clear it if they fix it or it gets approved
+  }
+
   let updatedAsset;
-  const typeStr = assetType.toUpperCase(); // This will now work without errors!
+  const typeStr = assetType.toUpperCase();
   
-  const isPropertyModel = ['PROPERTY', 'SHORTLET', 'HOTEL', 'VIP', 'VIP RESERVATION'].includes(typeStr);
+  // Safely check all possible property categories
+  const isPropertyModel = ['PROPERTY', 'SHORTLET', 'HOTEL', 'VIP', 'VIP RESERVATION', 'VIP_SERVICE'].includes(typeStr);
 
   if (isPropertyModel) {
     updatedAsset = await Property.findByIdAndUpdate(
       assetId,
-      { status },
+      updatePayload,
       { new: true, runValidators: true }
     );
   } else if (typeStr === 'CAR') {
     updatedAsset = await Car.findByIdAndUpdate(
       assetId,
-      { status },
+      updatePayload,
       { new: true, runValidators: true }
     );
   } else {
@@ -208,6 +219,27 @@ export const updateAssetApprovalStatus = asyncHandler(async (req: Request, res: 
 
   if (!updatedAsset) {
     return next(new AppError('Asset not found', 404));
+  }
+
+  // ==========================================
+  // 💡 INJECTED: SEND PUSH NOTIFICATION TO HOST
+  // ==========================================
+  if (status === 'APPROVED' || status === 'REJECTED') {
+    const title = status === 'APPROVED' ? 'Listing Approved! 🎉' : 'Listing Rejected ❌';
+    let message = `Your ${typeStr.toLowerCase()} listing has been ${status.toLowerCase()}.`;
+    
+    if (status === 'REJECTED' && rejectionReason) {
+      message += ` Reason: ${rejectionReason}`;
+    }
+
+    // Fire and forget the notification
+    await NotificationService.sendPush(
+      updatedAsset.ownerId.toString(),
+      title,
+      message,
+      "HOST_APPROVAL",
+      assetId
+    ).catch(err => console.error("Failed to send approval push:", err));
   }
 
   res.status(200).json({

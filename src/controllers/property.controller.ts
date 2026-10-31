@@ -193,9 +193,14 @@ export const deleteHotel = asyncHandler(async (req: Request, res: Response, next
 export const getProperties = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const queryObj = { ...req.query };
 
-  // 💡 THE BULLETPROOF FIX: Lock the public feed to only show APPROVED properties.
-  // This ensures pending/rejected assets never leak to the public API or frontend.
-  queryObj.status = 'APPROVED';
+  // 💡 BULLETPROOF FIX: Lock the public feed to only show APPROVED properties.
+  // BUT if a logged-in landlord is requesting their own portfolio, let them see all statuses!
+  const requestingUserId = req.user?._id?.toString();
+  if (requestingUserId && queryObj.ownerId === requestingUserId) {
+    // Do not force 'APPROVED' status. They are viewing their own dashboard.
+  } else {
+    queryObj.status = 'APPROVED';
+  }
 
   // 💡 AUDIT FIX: Process guest capacity queries using gte operator
   const guestParam = queryObj.guests || queryObj.maxGuests;
@@ -374,15 +379,31 @@ export const getLandlordBookings = asyncHandler(async (req: Request, res: Respon
   const landlordProperties = await Property.find({ ownerId: userId }).select('_id');
   const propertyIds = landlordProperties.map((p) => p._id);
 
+  // 💡 We add .lean() here so we can safely overwrite the properties
   const bookings = await Reservation.find({ propertyId: { $in: propertyIds } })
     .populate('userId', 'firstName lastName email phoneNumber')
     .populate('propertyId', 'title category address images') 
-    .sort('-createdAt');
+    .sort('-createdAt')
+    .lean();
+
+  // 💡 INJECTED: Hide guest details from host (Mobile Team Request #4)
+  const sanitizedBookings = bookings.map((booking: any) => {
+    if (booking.userId) {
+      booking.userId = {
+        _id: booking.userId._id, // Keep ID for strict app referencing
+        firstName: 'Rentals',
+        lastName: 'Africa',
+        email: 'hidden@rentalsafrica.com',
+        phoneNumber: 'Hidden by platform'
+      };
+    }
+    return booking;
+  });
 
   res.status(200).json({
     status: 'success',
-    results: bookings.length,
-    data: { bookings },
+    results: sanitizedBookings.length,
+    data: { bookings: sanitizedBookings },
   });
 });
 
@@ -445,9 +466,18 @@ export const checkHotelRoomAvailability = asyncHandler(async (req: Request, res:
 });
 
 export const getHotels = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const queryObj = { ...req.query, category: 'HOTEL' };
+  // 💡 FIX: Explicitly cast queryObj to 'any' so TypeScript allows dynamic properties
+  const queryObj: any = { ...req.query, category: 'HOTEL' };
   
-  const hotels = await Property.find(queryObj as any)
+  // 💡 Allow landlords to see their own pending/rejected hotels
+  const requestingUserId = req.user?._id?.toString();
+  if (requestingUserId && queryObj.ownerId === requestingUserId) {
+    // Leave status as is so they see everything
+  } else {
+    queryObj.status = 'APPROVED';
+  }
+
+  const hotels = await Property.find(queryObj)
     .sort('-createdAt')
     .select('-__v');
 
@@ -497,17 +527,32 @@ export const getLandlordHotelBookings = asyncHandler(async (req: Request, res: R
   
   const hotelPropertyIds = hotelProperties.map(p => p._id);
 
+  // 💡 We add .lean() here as well
   const bookings = await Reservation.find({ 
     propertyId: { $in: hotelPropertyIds } 
   })
     .populate('userId', 'firstName lastName phoneNumber')
     .populate('propertyId', 'title address images')
-    .sort({ createdAt: -1 });
+    .sort({ createdAt: -1 })
+    .lean();
+
+  // 💡 INJECTED: Hide guest details from host (Mobile Team Request #4)
+  const sanitizedBookings = bookings.map((booking: any) => {
+    if (booking.userId) {
+      booking.userId = {
+        _id: booking.userId._id,
+        firstName: 'Rentals',
+        lastName: 'Africa',
+        phoneNumber: 'Hidden by platform'
+      };
+    }
+    return booking;
+  });
 
   res.status(200).json({
     status: 'success',
-    results: bookings.length,
-    data: { bookings }
+    results: sanitizedBookings.length,
+    data: { bookings: sanitizedBookings }
   });
 });
 
