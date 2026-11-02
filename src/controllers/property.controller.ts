@@ -238,12 +238,18 @@ export const getProperty = asyncHandler(async (req: Request, res: Response, next
   }
 
   const sanitizedProperty = property.toObject();
-  if (sanitizedProperty.bookedDates) {
-    sanitizedProperty.bookedDates = sanitizedProperty.bookedDates.map((booking: any) => ({
-      startDate: booking.startDate,
-      endDate: booking.endDate
-    })) as any;
-  }
+
+  // 💡 THE FIX (Option B): Dynamically fetch active reservations instead of relying on the static array
+  const activeReservations = await Reservation.find({
+    propertyId: propertyId,
+    reservationStatus: 'ACTIVE',
+    checkOutDate: { $gte: new Date() }
+  });
+
+  sanitizedProperty.bookedDates = activeReservations.map((res: any) => ({
+    startDate: res.checkInDate,
+    endDate: res.checkOutDate
+  }));
 
   res.status(200).json({
     status: 'success',
@@ -276,29 +282,46 @@ export const checkPropertyAvailability = asyncHandler(async (req: Request, res: 
     return next(new AppError('No property found with that ID', 404));
   }
 
+  // 💡 THE FIX: Always fetch accurate booked ranges from live ACTIVE reservations
+  const activeReservations = await Reservation.find({
+    propertyId: propertyId,
+    reservationStatus: 'ACTIVE',
+    checkOutDate: { $gte: new Date() } // Only look at future/ongoing dates
+  });
+
+  const bookedRanges = activeReservations.map((res: any) => ({
+    startDate: res.checkInDate,
+    endDate: res.checkOutDate
+  }));
+
+  // Check for manual host override first
   if (!property.isAvailable) {
     return res.status(200).json({ 
       available: false, 
-      message: 'This property is currently offline or under maintenance.' 
+      message: 'This property is currently offline or under maintenance.',
+      bookedRanges // Provided so the calendar still plots known conflicts
     });
   }
 
-  const hasOverlap = property.bookedDates.some((booking) => {
-    const existingStart = new Date(booking.startDate);
-    const existingEnd = new Date(booking.endDate);
+  // Check dynamic overlaps for the requested dates
+  const hasOverlap = activeReservations.some((booking: any) => {
+    const existingStart = new Date(booking.checkInDate);
+    const existingEnd = new Date(booking.checkOutDate);
     return (requestedStart < existingEnd && requestedEnd > existingStart);
   });
 
   if (hasOverlap) {
     return res.status(200).json({ 
       available: false, 
-      message: 'These dates are already booked. Please select different dates.' 
+      message: 'These dates are already booked. Please select different dates.', // Accurate contextual message
+      bookedRanges // 💡 Option A implemented
     });
   }
 
   res.status(200).json({ 
     available: true, 
-    message: 'Property is available for these dates!' 
+    message: 'Property is available for these dates!',
+    bookedRanges // Provide it anyway so the UI can pre-block the calendar dates
   });
 });
 
@@ -504,12 +527,19 @@ export const getHotel = asyncHandler(async (req: Request, res: Response, next: N
   }
 
   const sanitizedHotel = hotel.toObject();
-  if (sanitizedHotel.bookedDates) {
-    sanitizedHotel.bookedDates = sanitizedHotel.bookedDates.map((booking: any) => ({
-      startDate: booking.startDate,
-      endDate: booking.endDate
-    })) as any;
-  }
+  
+  // 💡 THE FIX (Option B): Dynamically fetch active reservations for all rooms in this hotel
+  const activeReservations = await Reservation.find({
+    propertyId: hotelId,
+    reservationStatus: 'ACTIVE',
+    checkOutDate: { $gte: new Date() }
+  });
+
+  sanitizedHotel.bookedDates = activeReservations.map((res: any) => ({
+    startDate: res.checkInDate,
+    endDate: res.checkOutDate,
+    roomTypeId: res.roomTypeId // Attached so the frontend can filter by specific hotel room type
+  }));
 
   res.status(200).json({
     status: 'success',
