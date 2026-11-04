@@ -231,7 +231,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
               await NotificationService.sendPush(
                 host._id,
                 "New Booking Confirmed! 🎉",
-                `${guest.firstName} booked ${assetTitle} from ${datesOrTime}.`,
+                `A guest booked ${assetTitle} from ${datesOrTime}.`, // 💡 Scrubbed identity
                 "NEW_BOOKING",
                 newReservation._id
               );
@@ -290,7 +290,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
               await NotificationService.sendPush(
                 host._id,
                 "New Hotel Booking! 🏨",
-                `${guest.firstName} booked ${assetTitle} from ${datesOrTime}.`,
+                `A guest booked ${assetTitle} from ${datesOrTime}.`, // 💡 Scrubbed identity
                 "NEW_BOOKING",
                 newHotelReservation._id
               );
@@ -382,7 +382,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
               await NotificationService.sendPush(
                 host._id,
                 "New VIP Reservation! 🍾",
-                `${guest.firstName} secured a reservation at ${assetTitle}.`,
+                `A guest secured a reservation at ${assetTitle}.`, // 💡 Scrubbed identity
                 "NEW_BOOKING",
                 newVipReservation._id
               );

@@ -199,8 +199,8 @@ export const initiateCarBooking = asyncHandler(async (req: Request, res: Respons
   if (car) {
     await NotificationService.sendPush(
       car.ownerId,
-      "New Vehicle Rental! 🚗",
-      `${user.firstName || 'A guest'} just initiated a booking for your ${car.make} ${car.carModel}. Waiting for payment.`,
+      "New Vehicle Rental! 🚙",
+      `A guest just initiated a booking for your ${car.make} ${car.carModel}. Waiting for payment.`, // 💡 Scrubbed identity
       "NEW_BOOKING",
       reservation._id
     );
@@ -309,9 +309,9 @@ export const confirmCarHandover = asyncHandler(async (req: Request, res: Respons
   if (isOwner) {
     reservation.ownerConfirmedHandover = true;
     await NotificationService.sendPush(
-      guest._id,
-      "Vehicle Handed Over! 🚗",
-      `The host has confirmed the handover of the ${car.make}. Drive safely!`,
+      owner._id,
+      "Pickup Confirmed! 🔑",
+      `The guest has confirmed receiving the ${car.make}.`, 
       "PICKUP",
       reservation._id
     );
