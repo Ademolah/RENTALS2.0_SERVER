@@ -54,16 +54,23 @@ export const getMe = asyncHandler(async (req: Request, res: Response, next: Next
 
 export const updateMe = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   // 1. Prevent users from updating sensitive fields via this route
-  if (req.body.password || req.body.role || req.body.email) {
+  // 💡 THE FIX: Added optional chaining (?.) so it never throws a TypeError
+  if (req.body?.password || req.body?.role || req.body?.email) {
     return next(new AppError('This route is not for password, role, or email updates.', 400));
+  }
+
+  // 💡 THE FIX: Extract and upload the profile picture if included in the request
+  let avatarUrl = undefined;
+  if (req.file) {
+    avatarUrl = await CloudinaryService.uploadImageBuffer(req.file.buffer, 'rentals/users');
   }
 
   // 2. Filter allowed fields
   const allowedUpdates = {
-    firstName: req.body.firstName,
-    lastName: req.body.lastName,
-    phoneNumber: req.body.phoneNumber,
-    profilePicture: req.body.profilePicture,
+    firstName: req.body?.firstName,
+    lastName: req.body?.lastName,
+    phoneNumber: req.body?.phoneNumber,
+    profilePicture: avatarUrl || req.body?.profilePicture, 
   };
 
   // Remove undefined fields so they don't overwrite existing data with nulls

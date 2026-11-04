@@ -10,7 +10,7 @@ router.use(protect)
 
 router.route('/me')
   .get(getMe)
-  .patch(updateMe)
+  .patch(upload.single('profilePicture'), updateMe)
   .delete(deleteMe);
 
 router.post('/favorites/:propertyId', toggleFavoriteProperty);
