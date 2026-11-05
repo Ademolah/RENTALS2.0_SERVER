@@ -142,6 +142,7 @@ export interface IProperty {
   description: string;
   category: PropertyCategory;
   rating: number;
+  cautionFee: number;
   status : string;
   video: string;
   rejectionReason: string;

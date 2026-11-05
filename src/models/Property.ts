@@ -13,7 +13,8 @@ const roomTypeSchema = new Schema<IRoomType>({
   totalInventory: { type: Number, required: true, min: 1 },
   amenities: [{ type: String }],
   images: [{ type: String }],
-  description: { type: String }
+  description: { type: String },
+  
 });
 
 const propertySchema = new Schema<IPropertyDocument>(
@@ -21,6 +22,13 @@ const propertySchema = new Schema<IPropertyDocument>(
     propertyId: { type: String, unique: true },
     title: { type: String, required: true, trim: true },
     description: { type: String, required: true },
+    cautionFee: {
+      type: Number,
+      required: function(this: any): boolean { 
+        return this.category === 'SHORTLET'; 
+      },
+      default: 0
+    },
     status: { 
       type: String, 
       enum: ['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'], 

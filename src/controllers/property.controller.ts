@@ -37,6 +37,7 @@ export const createProperty = asyncHandler(async (req: Request, res: Response, n
   // 4. Construct payload with Workflow Status and Security Hashes
   const propertyData = {
     ...req.body,
+    cautionFee: req.body.cautionFee ? Number(req.body.cautionFee) : 0, // 💡 Safety cast retained
     address: parsedAddress,
     images: imageUrls,
     video: videoUrl,
