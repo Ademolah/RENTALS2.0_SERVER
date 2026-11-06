@@ -8,6 +8,7 @@ const userSchema = new Schema<IUserDocument>(
     passwordHash: { type: String, required: true, select: false }, // Never return password by default
     firstName: { type: String, required: true, trim: true },
     lastName: { type: String, required: true, trim: true },
+    profilePicture: { type: String },
     role: { type: String, enum: ['USER', 'LANDLORD', 'ADMIN'], default: 'USER' },
     phoneNumber: { type: String, trim: true, unique: true, sparse: true }, // Sparse index allows multiple null values
     favoriteProperties: [{
