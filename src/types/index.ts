@@ -126,6 +126,7 @@ export interface IUser {
   firstName: string;
   favoriteProperties: mongoose.Types.ObjectId[];
   lastName: string;
+  hostDisplayName: string;
   profilePicture?: string;
   verificationCode?: string;
   verificationCodeExpires?: Date;

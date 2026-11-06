@@ -44,6 +44,7 @@ export const createProperty = asyncHandler(async (req: Request, res: Response, n
     imageHashes: req.body.imageHashes, // 💡 Injected by the mediaValidator middleware
     status: 'PENDING',                 // 💡 Hardcoded to ensure it stays hidden until approved
     ownerId: req.user?._id,
+    hostedBy: req.user?.hostDisplayName || req.user?.firstName || 'Rentals Africa',
   };
 
   const property = await PropertyService.createProperty(propertyData);

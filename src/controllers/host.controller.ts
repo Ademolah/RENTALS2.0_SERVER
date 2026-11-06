@@ -86,6 +86,10 @@ export const processHostApplication = asyncHandler(async (req: Request, res: Res
     const user = hostRequest.user as any;
     user.role = 'LANDLORD';
     user.isVerified = true;
+    
+    // 💡 SURGICAL INSERTION: Permanently transfer the brand name to the User profile
+    user.hostDisplayName = hostRequest.hostDisplayName; 
+
     await user.save();
 
     // Fire and forget the welcome email without blocking the response
