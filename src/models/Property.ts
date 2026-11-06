@@ -75,6 +75,11 @@ const propertySchema = new Schema<IPropertyDocument>(
         lng: { type: Number }
       }
     },
+    hostedBy: { 
+      type: String, 
+      required: true,
+      default: 'Rentals' 
+    },
     amenities: [{ type: String }],
     images: [{ type: String }], 
     video: { type: String }, 

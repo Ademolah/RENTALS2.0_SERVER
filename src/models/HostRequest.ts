@@ -5,6 +5,7 @@ export interface IHostRequest extends Document {
   address: string;
   city: string;
   state: string;
+  hostDisplayName: string;
   nin: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   adminNotes?: string;
@@ -30,6 +31,12 @@ const hostRequestSchema = new Schema<IHostRequest>({
     type: String,
     required: true
   },
+  hostDisplayName: { 
+      type: String, 
+      required: [true, 'A display name or brand name is required'],
+      trim: true,
+      maxlength: 50
+    },
   nin: {
     type: String,
     required: true,

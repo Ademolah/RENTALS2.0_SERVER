@@ -143,6 +143,7 @@ export interface IProperty {
   category: PropertyCategory;
   rating: number;
   cautionFee: number;
+  hostedBy: string;
   status : string;
   video: string;
   rejectionReason: string;

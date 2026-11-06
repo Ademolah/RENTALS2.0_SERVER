@@ -10,12 +10,18 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 
 export const submitHostApplication = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const { address, city, state, nin } = req.body;
+  // 💡 EXTRACT NEW FIELD
+  const { address, city, state, nin, hostDisplayName } = req.body; 
   
   if (!req.user) {
     return next(new AppError('Authentication context missing.', 401));
   }
   
+  // 💡 FAST-FAIL VALIDATION
+  if (!hostDisplayName || hostDisplayName.trim() === '') {
+    return next(new AppError('A display name or brand name is required.', 400));
+  }
+
   // Using the non-null assertion operator matching your car.controller.ts
   const userId = req.user!._id.toString();
 
@@ -40,6 +46,7 @@ export const submitHostApplication = asyncHandler(async (req: Request, res: Resp
 
   const hostRequest = await HostRequest.create({
     user: userId,
+    hostDisplayName, // 💡 INJECTED INTO PAYLOAD
     address,
     city,
     state,
