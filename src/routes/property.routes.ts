@@ -6,7 +6,8 @@ import {
   updateProperty,
   checkPropertyAvailability,
   getLandlordBookings, 
-  deleteProperty
+  deleteProperty,
+  getLandlordProperties
 } from '../controllers/property.controller.js';
 import { protect, restrictTo } from '../middlewares/auth.middleware.js';
 import { propertyMediaUpload } from '../middlewares/upload.middleware.js';
@@ -26,6 +27,7 @@ router.post(
 router.get('/', getProperties);
 router.post('/:id/availability', checkPropertyAvailability);
 
+router.get('/landlord/portfolio', protect, restrictTo('LANDLORD', 'ADMIN'), getLandlordProperties);
 router.get('/landlord-bookings', protect, restrictTo('LANDLORD', 'ADMIN'), getLandlordBookings);
 
 router.get('/:id', getProperty);

@@ -745,3 +745,24 @@ export const deleteProperty = asyncHandler(async (req: Request, res: Response, n
     data: null
   });
 });
+
+
+export const getLandlordProperties = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const userId = req.user?._id?.toString();
+
+  if (!userId) {
+    return next(new AppError('You must be logged in to view your properties.', 401));
+  }
+  
+  // Fetch properties belonging to the host, excluding hotels
+  const properties = await Property.find({ 
+    ownerId: userId,
+    category: { $ne: 'HOTEL' } 
+  }).sort('-createdAt');
+
+  res.status(200).json({
+    status: 'success',
+    results: properties.length,
+    data: { properties }
+  });
+});
