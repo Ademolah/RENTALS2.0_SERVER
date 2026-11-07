@@ -8,6 +8,18 @@ import { Reservation } from '../models/Reservation.js';
 import { AppError } from '../utils/AppError.js';
 
 export const createProperty = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  // ==========================================
+  // 💡 SURGICAL INSERTION: Content Moderation Guard
+  // ==========================================
+  if (req.body.description) {
+    // A comprehensive list of explicit/inappropriate terms
+    const explicitPattern = /\b(sex|bdsm|prostitution|escort|hookup|brothel|orgy|striptease|massage parlor|happy ending|porn|pornography|camgirl|onlyfans)\b/i;
+    
+    if (explicitPattern.test(req.body.description)) {
+      return next(new AppError('Your property description contains inappropriate or restricted language. Please revise to meet our community standards.', 400));
+    }
+  }
+
   // 1. Cast files to an object to handle the fields provided by our new upload middleware
   const files = req.files as { [fieldname: string]: Express.Multer.File[] };
   
