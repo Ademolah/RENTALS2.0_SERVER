@@ -258,6 +258,7 @@ export const appleSignIn = asyncHandler(async (req: Request, res: Response, next
 });
 
 // --- ACCOUNT RECOVERY ---
+// --- ACCOUNT RECOVERY ---
 export const forgotPassword = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { email } = req.body;
   if (!email) return next(new AppError('Please provide your email address.', 400));
@@ -267,15 +268,21 @@ export const forgotPassword = asyncHandler(async (req: Request, res: Response, n
     return next(new AppError('There is no user with that email address.', 404));
   }
 
-  const resetToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET as string, { expiresIn: '15m' });
-  const resetUrl = `${FRONTEND_BASE_URL}/reset-password?token=${resetToken}`;
+  // 💡 SURGICAL FIX: Generate 6-digit OTP instead of JWT
+  const otpCode = Math.floor(100000 + Math.random() * 900000).toString(); 
+  const otpExpiry = new Date(Date.now() + 15 * 60 * 1000); 
+
+  user.verificationCode = otpCode;
+  user.verificationCodeExpires = otpExpiry;
+  await user.save({ validateBeforeSave: false });
 
   try {
-    EmailService.sendPasswordReset({ to: user.email, firstName: user.firstName, resetUrl }).catch(console.error);
+    // 💡 Send the OTP
+    EmailService.sendPasswordReset({ to: user.email, firstName: user.firstName, otpCode }).catch(console.error);
     
     res.status(200).json({
       status: 'success',
-      message: 'Password reset link sent to email.'
+      message: 'A 6-digit password reset code has been sent to your email.'
     });
   } catch (err) {
     return next(new AppError('There was an error sending the email. Try again later!', 500));
@@ -283,10 +290,11 @@ export const forgotPassword = asyncHandler(async (req: Request, res: Response, n
 });
 
 export const resetPassword = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const { token, newPassword } = req.body;
+  // 💡 SURGICAL FIX: Now expects the email and the 6-digit token from the client
+  const { email, token, newPassword } = req.body;
 
-  if (!token || !newPassword) {
-    return next(new AppError('Token and new password are required.', 400));
+  if (!email || !token || !newPassword) {
+    return next(new AppError('Email, 6-digit code, and new password are required.', 400));
   }
 
   const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!\%*#?&]{8,}$/;
@@ -294,22 +302,24 @@ export const resetPassword = asyncHandler(async (req: Request, res: Response, ne
     return next(new AppError('Password must be at least 8 characters long and contain at least one letter and one number.', 400));
   }
 
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as { id: string };
-    const user = await User.findById(decoded.id);
+  // 💡 Validate the OTP code against the database
+  const user = await User.findOne({ 
+    email: email.toLowerCase(),
+    verificationCode: token,
+    verificationCodeExpires: { $gt: new Date() } 
+  });
 
-    if (!user) return next(new AppError('User not found.', 404));
+  if (!user) return next(new AppError('Invalid or expired reset code.', 401));
 
-    user.passwordHash = await AuthService.hashPassword(newPassword);
-    await user.save();
+  user.passwordHash = await AuthService.hashPassword(newPassword);
+  user.verificationCode = undefined as any;
+  user.verificationCodeExpires = undefined as any;
+  await user.save();
 
-    res.status(200).json({
-      status: 'success',
-      message: 'Password has been reset successfully. You can now log in.'
-    });
-  } catch (error) {
-    return next(new AppError('Token is invalid or has expired.', 401));
-  }
+  res.status(200).json({
+    status: 'success',
+    message: 'Password has been reset successfully. You can now log in.'
+  });
 });
 
 export const verifyEmail = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
