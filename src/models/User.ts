@@ -9,7 +9,7 @@ const userSchema = new Schema<IUserDocument>(
     firstName: { type: String, required: true, trim: true },
     lastName: { type: String, required: true, trim: true },
     profilePicture: { type: String },
-    hostDisplayName: { type: String, required: true, trim: true },
+    hostDisplayName: { type: String, trim: true },
     role: { type: String, enum: ['USER', 'LANDLORD', 'ADMIN'], default: 'USER' },
     phoneNumber: { type: String, trim: true, unique: true, sparse: true }, // Sparse index allows multiple null values
     favoriteProperties: [{
