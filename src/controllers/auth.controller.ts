@@ -43,7 +43,8 @@ export const registerLimiter = rateLimit({
 });
 
 export const registerUser = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const { email, password, firstName, lastName, role, phoneNumber } = req.body;
+  // 💡 SURGICAL FIX: We no longer extract 'role' from req.body. We completely ignore it.
+  const { email, password, firstName, lastName, phoneNumber } = req.body;
 
   if (!email || !password || !firstName || !lastName) {
     return next(new AppError('Please provide all required fields: email, password, firstName, and lastName.', 400));
@@ -53,8 +54,6 @@ export const registerUser = asyncHandler(async (req: Request, res: Response, nex
   if (!passwordRegex.test(password)) {
     return next(new AppError('Password must be at least 8 characters long and contain at least one letter and one number.', 400));
   }
-
-  const assignedRole = role === 'ADMIN' ? 'USER' : role; 
   
   const otpCode = Math.floor(100000 + Math.random() * 900000).toString(); 
   const otpExpiry = new Date(Date.now() + 15 * 60 * 1000); 
@@ -73,6 +72,9 @@ export const registerUser = asyncHandler(async (req: Request, res: Response, nex
     existingUser.lastName = lastName;
     if (phoneNumber) existingUser.phoneNumber = phoneNumber;
     
+    // 💡 SURGICAL FIX: Force reset their role to 'USER' just in case an unverified account was previously manipulated
+    existingUser.role = 'USER'; 
+    
     await existingUser.save();
     await EmailService.sendEmailVerification({ to: email, firstName, otpCode });
 
@@ -90,7 +92,7 @@ export const registerUser = asyncHandler(async (req: Request, res: Response, nex
     firstName,
     lastName,
     phoneNumber, 
-    role: assignedRole || 'USER',
+    role: 'USER', 
     isVerified: false,
     verificationCode: otpCode,
     verificationCodeExpires: otpExpiry
