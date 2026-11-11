@@ -5,6 +5,7 @@ import {User} from '../models/User';
 import {PaystackService} from '../services/paystack.service';
 import { Reservation } from '../models/Reservation';
 import { CarReservation } from '../models/CarReservation';
+import mongoose from 'mongoose'
 
 export const getAvailableBanks = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const banks = await PaystackService.getBanks();
@@ -98,10 +99,9 @@ export const saveLandlordBankDetails = asyncHandler(async (req: Request, res: Re
 });
 
 
- 
+
 export const processLandlordPayout = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const { bookingId } = req.params;
-  // Handle potential variations in how the ID is attached to the req.user object
   const landlordId = req.user?._id?.toString();
 
   // 1. Dual Lookup: Determine if this is a Property or Car reservation
@@ -119,64 +119,88 @@ export const processLandlordPayout = asyncHandler(async (req: Request, res: Resp
 
   // 2. Validate Ownership via the populated asset
   const asset = isCar ? reservation.carId : reservation.propertyId;
-  
-  // Safely extract the owner ID depending on the asset type to satisfy TypeScript
   const ownerId = asset?.ownerId;
 
-
-  // Protect against undefined and verify authorization
   if (!ownerId || ownerId.toString() !== landlordId) {
     return next(new AppError('Unauthorized access to this asset payout', 403));
   }
 
-  // 3. Enforce Idempotency using exact schema enums
+  // 3. Enforce Idempotency & The Dual Handshake (SECURITY FIX 1)
   if (reservation.payoutStatus !== 'HELD_IN_ESCROW') {
     return next(new AppError(`Payout cannot be processed. Current status: ${reservation.payoutStatus}`, 400));
   }
 
-  // 4. Retrieve Landlord's Recipient Code from the nested bankDetails object
-  const landlord = await User.findById(landlordId);
+  // Verify the exact schema field names for check-in confirmation
+  const guestHasCheckedIn = isCar ? reservation.guestConfirmedPickup : reservation.checkInConfirmedByGuest;
+  if (!guestHasCheckedIn) {
+    return next(new AppError('Payout locked. The guest must confirm check-in on their dashboard before funds can be released.', 403));
+  }
+
+  // 4. Temporal Lock (SECURITY FIX 2)
+  const today = new Date();
+  const checkInDate = new Date(isCar ? reservation.pickupTime : reservation.checkInDate);
   
-  // Using optional chaining to drill into the exact location of the code
+  if (today < checkInDate) {
+    return next(new AppError('Payout locked. Escrow funds cannot be released before the reservation start date.', 403));
+  }
+
+  // 5. Retrieve Landlord's Recipient Code
+  const landlord = await User.findById(landlordId);
   if (!landlord || !landlord.bankDetails?.recipientCode) {
     return next(new AppError('Payout account not configured. Please setup your bank details first.', 400));
   }
 
-  // 5. Financial Mathematics
-  const PLATFORM_FEE_PERCENTAGE = 0.05; // 10%
+  // 6. Financial Mathematics & Integer Sanitization (SECURITY FIX 4)
+  const PLATFORM_FEE_PERCENTAGE = 0.05; // 5%
   const grossAmount = reservation.totalAmount;
   const platformFee = grossAmount * PLATFORM_FEE_PERCENTAGE;
-  const payoutAmount = grossAmount - platformFee;
+  const payoutAmount = Math.round(grossAmount - platformFee); // Sanitize to exact integer for Paystack
 
-  // 6. Initiate Paystack Transfer
-  const transferReason = `Payout for ${isCar ? 'Vehicle' : 'Property'} Reservation ${reservation._id}`;
-  
-  const transferResult = await PaystackService.initiateTransfer(
-    payoutAmount, 
-    landlord.bankDetails.recipientCode, // Targeted exact schema path
-    reservation._id.toString(),
-    transferReason
-  );
+  // 7. Atomic Database Transaction (SECURITY FIX 3)
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  // 7. Lock the Ledger State using exact schema enums
-  if (isCar) {
-    reservation.payoutStatus = 'RELEASED_TO_OWNER';
-    reservation.escrowStatus = 'RELEASED'; 
-    reservation.ownerConfirmedHandover = true;
-  } else {
-    reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
-    reservation.checkInConfirmedByLandlord = true;
-  }
-  
-  await reservation.save();
-
-  res.status(200).json({
-    status: 'success',
-    message: 'Payout initiated successfully. Funds are en route to your bank account.',
-    data: {
-      transferCode: transferResult.data.transfer_code,
-      netPayout: payoutAmount,
-      status: reservation.payoutStatus
+  try {
+    // 7A. Lock the Ledger State FIRST in memory
+    if (isCar) {
+      reservation.payoutStatus = 'RELEASED_TO_OWNER';
+      reservation.escrowStatus = 'RELEASED'; 
+      reservation.ownerConfirmedHandover = true;
+    } else {
+      reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
+      reservation.checkInConfirmedByLandlord = true;
     }
-  });
+    
+    // Save to DB within the transaction session
+    await reservation.save({ session });
+
+    // 7B. Initiate Paystack Transfer ONLY after DB acknowledges the lock
+    const transferReason = `Payout for ${isCar ? 'Vehicle' : 'Property'} Reservation ${reservation._id}`;
+    const transferResult = await PaystackService.initiateTransfer(
+      payoutAmount, 
+      landlord.bankDetails.recipientCode, 
+      reservation._id.toString(),
+      transferReason
+    );
+
+    // If transfer succeeds, commit the transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Payout initiated successfully. Funds are en route to your bank account.',
+      data: {
+        transferCode: transferResult.data.transfer_code,
+        netPayout: payoutAmount,
+        status: reservation.payoutStatus
+      }
+    });
+
+  } catch (error) {
+    // If the Paystack API fails, OR the DB fails, abort everything to prevent ghost payouts.
+    await session.abortTransaction();
+    session.endSession();
+    return next(new AppError('Payout failed. The transaction was safely rolled back.', 500));
+  }
 });
