@@ -593,6 +593,8 @@ export const getMyBookings = asyncHandler(async (req: Request, res: Response, ne
   });
 });
 
+
+
 export const confirmCheckIn = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const reservationId = req.params.reservationId as string;
   const userId = req.user?._id?.toString();
@@ -614,7 +616,6 @@ export const confirmCheckIn = asyncHandler(async (req: Request, res: Response, n
     reservation.checkInConfirmedByGuest = true;
     updated = true;
 
-    // 💡 NOTIFICATION INJECTION: Notify Host that Guest confirmed
     if (property?.ownerId) {
       await NotificationService.sendPush(
         property.ownerId,
@@ -630,7 +631,6 @@ export const confirmCheckIn = asyncHandler(async (req: Request, res: Response, n
     reservation.checkInConfirmedByLandlord = true;
     updated = true;
 
-    // 💡 NOTIFICATION INJECTION: Notify Guest that Host confirmed
     await NotificationService.sendPush(
       reservation.userId,
       "Host Confirmed Check-In",
@@ -644,25 +644,71 @@ export const confirmCheckIn = asyncHandler(async (req: Request, res: Response, n
     return next(new AppError('You are not authorized to confirm check-in for this booking', 403));
   }
 
+  // --- ESCROW RELEASE & AUTOMATED PAYOUT LOGIC ---
   if (reservation.checkInConfirmedByGuest && reservation.checkInConfirmedByLandlord) {
     if (!(reservation as any).isRentalsProperty && reservation.payoutStatus === 'HELD_IN_ESCROW') {
-      reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
-      console.log(`[ESCROW RELEASED] Booking ${reservation._id} funds authorized for payout.`);
-
-      // 💡 NOTIFICATION INJECTION: Notify Host that Escrow is released
-      if (property?.ownerId) {
-        await NotificationService.sendPush(
-          property.ownerId,
-          "Payout Authorized 💰",
-          `Check-in is complete at ${property.title}. Funds have been authorized for payout.`,
-          "PAYOUT",
-          reservation._id
-        );
+      
+      const landlordId = property?.ownerId?.toString();
+      const landlord = await User.findById(landlordId);
+      
+      if (!landlord || !landlord.bankDetails?.recipientCode) {
+        return next(new AppError('Payout locked. Landlord bank details are missing or unverified.', 400));
       }
-    }
-  }
 
-  await reservation.save();
+      // Calculate Math
+      const PLATFORM_FEE_PERCENTAGE = 0.05; // 5%
+      const grossAmount = reservation.totalAmount;
+      const platformFee = grossAmount * PLATFORM_FEE_PERCENTAGE;
+      const payoutAmount = Math.round(grossAmount - platformFee);
+
+      // Start ACID Transaction
+      const session = await mongoose.startSession();
+      session.startTransaction();
+
+      try {
+        // Lock DB State First
+        reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
+        await reservation.save({ session });
+
+        // Trigger Paystack Transfer
+        const transferReason = `Automated Check-In Payout for Reservation ${reservation._id}`;
+        await PaystackService.initiateTransfer(
+          payoutAmount, 
+          landlord.bankDetails.recipientCode, 
+          reservation._id.toString(),
+          transferReason
+        );
+
+        // If transfer succeeds, commit to DB
+        await session.commitTransaction();
+        session.endSession();
+
+        console.log(`[ESCROW RELEASED] Booking ${reservation._id} funds successfully transferred via Paystack.`);
+
+        if (property?.ownerId) {
+          await NotificationService.sendPush(
+            property.ownerId,
+            "Payout Initiated 💰",
+            `Check-in is complete at ${property.title}. Funds have been sent to your bank account.`,
+            "PAYOUT",
+            reservation._id
+          );
+        }
+      } catch (error) {
+        // Rollback DB if Paystack transfer fails
+        await session.abortTransaction();
+        session.endSession();
+        console.error(`[PAYOUT FAILED] Reservation ${reservation._id}:`, error);
+        return next(new AppError('Check-in confirmed, but automated payout failed to initiate. Please contact admin.', 500));
+      }
+    } else {
+      // Just save check-in state if no payout is needed yet
+      await reservation.save();
+    }
+  } else {
+    // Just save check-in state if handshake isn't complete yet
+    await reservation.save();
+  }
 
   res.status(200).json({
     status: 'success',
