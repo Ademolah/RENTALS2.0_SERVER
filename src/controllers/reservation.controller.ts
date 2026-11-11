@@ -668,14 +668,19 @@ export const confirmCheckIn = asyncHandler(async (req: Request, res: Response, n
       try {
         // Lock DB State First
         reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
+        
+        // Create a strictly unique transfer reference to prevent Paystack duplicate block
+        const uniqueTransferRef = `TRF-${reservation._id}-${Date.now()}`;
+        reservation.paystackReference = uniqueTransferRef; // Optional: Save for easy reconciliation
+        
         await reservation.save({ session });
 
-        // Trigger Paystack Transfer
+        // Trigger Paystack Transfer with the unique reference
         const transferReason = `Automated Check-In Payout for Reservation ${reservation._id}`;
         await PaystackService.initiateTransfer(
           payoutAmount, 
           landlord.bankDetails.recipientCode, 
-          reservation._id.toString(),
+          uniqueTransferRef,
           transferReason
         );
 
@@ -699,7 +704,10 @@ export const confirmCheckIn = asyncHandler(async (req: Request, res: Response, n
         await session.abortTransaction();
         session.endSession();
         console.error(`[PAYOUT FAILED] Reservation ${reservation._id}:`, error);
-        return next(new AppError('Check-in confirmed, but automated payout failed to initiate. Please contact admin.', 500));
+        
+        // Pass the actual Paystack error message back for easier debugging
+        const errorMsg = error instanceof AppError ? error.message : 'Automated payout failed to initiate.';
+        return next(new AppError(`Check-in confirmed, but payout failed: ${errorMsg}`, 500));
       }
     } else {
       // Just save check-in state if no payout is needed yet
