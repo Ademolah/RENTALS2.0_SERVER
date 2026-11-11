@@ -523,7 +523,12 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
   
   else if (event.event === 'transfer.failed' || event.event === 'transfer.reversed') {
     const transferData = event.data;
-    const bookingId = transferData.reference;
+    const reference = transferData.reference; 
+
+    // Extract our injected booking ID from TRF-[id]-[timestamp]
+    const idParts = reference.split('-');
+    if (idParts.length < 3 || idParts[0] !== 'TRF') return; 
+    const bookingId = idParts[1];
 
     try {
       let reservation: any = await Reservation.findById(bookingId).populate('propertyId');
@@ -536,8 +541,12 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
       }
 
       if (reservation) {
+        // Revert ledger back to escrow so they can retry
         reservation.payoutStatus = 'HELD_IN_ESCROW';
         
+        // Prevent Paystack duplicate reference block on the next retry attempt
+        reservation.paystackReference = `FAILED_${reference}`;
+
         if (isCar) {
           (reservation as any).escrowStatus = 'HELD';
           (reservation as any).ownerConfirmedHandover = false; 
@@ -550,12 +559,12 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
         await reservation.save();
         console.error(`❌ [Webhook] Transfer FAILED for Booking: ${bookingId}. Reason: ${transferData.reason}`);
 
-        // 💡 NOTIFICATION INJECTION: Notify Host of failed payout
+        // Notify Host of failed payout with actionable context
         if (hostId) {
           await NotificationService.sendPush(
             hostId,
             "Payout Failed ⚠️",
-            "An attempt to transfer your funds failed. Escrow remains held.",
+            `Your bank rejected the transfer. Reason: ${transferData.reason || 'Network error'}. Escrow remains held.`,
             "SYSTEM",
             reservation._id
           );
@@ -565,6 +574,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response, 
       console.error('❌ Webhook Transfer Failed DB Error:', dbError);
     }
   }
+  
 });
 
 export const getMyBookings = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
