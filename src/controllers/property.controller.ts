@@ -6,6 +6,9 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { Property } from '../models/Property.js';
 import { Reservation } from '../models/Reservation.js';
 import { AppError } from '../utils/AppError.js';
+import { User } from '../models/User.js';
+import { PaystackService } from '../services/paystack.service.js';
+import { NotificationService } from '../services/notification.service.js';
 
 export const createProperty = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   // ==========================================
@@ -600,33 +603,121 @@ export const getLandlordHotelBookings = asyncHandler(async (req: Request, res: R
   });
 });
 
-export const confirmHotelCheckIn = asyncHandler(async (req: Request, res: Response) => {
+
+
+
+export const confirmHotelCheckIn = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const id = req.params.id as string; 
+  const userId = req.user?._id?.toString();
+  const userRole = req.user?.role;
   
   if (!id || !mongoose.Types.ObjectId.isValid(id)) {
-    res.status(400);
-    throw new Error('Invalid reservation ID format.');
+    return next(new AppError('Invalid reservation ID format.', 400));
   }
 
-  const reservation = await Reservation.findById(id);
+  // 1. Fetch reservation and populate property for authorization
+  const reservation = await Reservation.findById(id).populate('propertyId');
   
   if (!reservation) {
-    res.status(404);
-    throw new Error('Reservation not found');
+    return next(new AppError('Reservation not found', 404));
   }
 
+  const property = reservation.propertyId as any;
+
+  // 2. Authorization Lock: Ensure only the Hotel Owner or Admin can trigger this
+  if (property?.ownerId?.toString() !== userId && userRole !== 'ADMIN') {
+    return next(new AppError('You are not authorized to confirm check-in for this hotel.', 403));
+  }
+
+  // 3. Record the Host handshake
   reservation.checkInConfirmedByLandlord = true;
 
-  if (reservation.checkInConfirmedByGuest) {
-    reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
-  }
+  // 4. Notify the guest
+  await NotificationService.sendPush(
+    reservation.userId,
+    "Hotel Check-In Confirmed",
+    `The concierge at ${property.title} has verified your check-in.`,
+    "CHECK_IN",
+    reservation._id
+  );
 
-  await reservation.save();
+  // --- ESCROW RELEASE & AUTOMATED PAYOUT LOGIC ---
+  if (reservation.checkInConfirmedByGuest && reservation.payoutStatus === 'HELD_IN_ESCROW') {
+    
+    const landlordId = property?.ownerId?.toString();
+    const landlord = await User.findById(landlordId);
+    
+    if (!landlord || !landlord.bankDetails?.recipientCode) {
+      return next(new AppError('Payout locked. Hotel bank details are missing or unverified.', 400));
+    }
+
+    // Calculate Math
+    const PLATFORM_FEE_PERCENTAGE = 0.05; // 5%
+    const grossAmount = reservation.totalAmount;
+    const platformFee = grossAmount * PLATFORM_FEE_PERCENTAGE;
+    const payoutAmount = Math.round(grossAmount - platformFee);
+
+    // Start ACID Transaction
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      // Lock DB State First
+      reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
+      
+      // Create a strictly unique transfer reference to prevent Paystack duplicate block
+      const uniqueTransferRef = `TRF-${reservation._id}-${Date.now()}`;
+      reservation.paystackReference = uniqueTransferRef; 
+      
+      await reservation.save({ session });
+
+      // Trigger Paystack Transfer with the unique reference
+      const transferReason = `Automated Hotel Check-In Payout for Reservation ${reservation._id}`;
+      await PaystackService.initiateTransfer(
+        payoutAmount, 
+        landlord.bankDetails.recipientCode, 
+        uniqueTransferRef,
+        transferReason
+      );
+
+      // If transfer succeeds, commit to DB
+      await session.commitTransaction();
+      session.endSession();
+
+      console.log(`[ESCROW RELEASED] Hotel Booking ${reservation._id} funds successfully transferred via Paystack.`);
+
+      if (property?.ownerId) {
+        await NotificationService.sendPush(
+          property.ownerId,
+          "Payout Initiated 💰",
+          `Check-in is complete at ${property.title}. Funds have been sent to your bank account.`,
+          "PAYOUT",
+          reservation._id
+        );
+      }
+    } catch (error) {
+      // Rollback DB if Paystack transfer fails
+      await session.abortTransaction();
+      session.endSession();
+      console.error(`[PAYOUT FAILED] Hotel Reservation ${reservation._id}:`, error);
+      
+      // Pass the actual Paystack error message back for easier debugging
+      const errorMsg = error instanceof AppError ? error.message : 'Automated payout failed to initiate.';
+      return next(new AppError(`Check-in confirmed, but payout failed: ${errorMsg}`, 500));
+    }
+  } else {
+    // Just save check-in state if guest hasn't confirmed yet or payout is not needed yet
+    await reservation.save();
+  }
 
   res.status(200).json({
     status: 'success',
     message: 'Hotel check-in confirmed successfully',
-    data: { reservation }
+    data: { 
+      reservation,
+      checkInConfirmedByLandlord: reservation.checkInConfirmedByLandlord,
+      payoutStatus: reservation.payoutStatus 
+    }
   });
 });
 

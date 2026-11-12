@@ -9,6 +9,7 @@ import { CloudinaryService } from '../services/cloudinary.service.js';
 import { CarReservation } from '../models/CarReservation.js';
 import { EmailService } from '../services/email.service.js';
 import { NotificationService } from '../services/notification.service.js';
+import { User } from '../models/User.js';
 
 export const createCar = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const {
@@ -260,6 +261,8 @@ export const getCarById = asyncHandler(async (req: Request, res: Response, next:
   });
 });
 
+
+
 export const confirmCarHandover = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   const reservationId = req.params.reservationId as string;
   const userId = req.user!._id.toString();
@@ -308,57 +311,108 @@ export const confirmCarHandover = asyncHandler(async (req: Request, res: Respons
   
   if (isOwner) {
     reservation.ownerConfirmedHandover = true;
+    // Notify guest that owner confirmed
     await NotificationService.sendPush(
-      owner._id,
-      "Pickup Confirmed! 🔑",
-      `The guest has confirmed receiving the ${car.make}.`, 
+      guest._id,
+      "Handover Confirmed! 🔑",
+      `The host has confirmed the handover of the ${car.make}.`, 
       "PICKUP",
       reservation._id
     );
   }
 
+  // --- ESCROW RELEASE & AUTOMATED PAYOUT LOGIC ---
   if (reservation.guestConfirmedPickup && reservation.ownerConfirmedHandover && reservation.escrowStatus === 'HELD') {
-    reservation.escrowStatus = 'RELEASED';
-    reservation.reservationStatus = 'ACTIVE'; 
-    console.log(`[ESCROW RELEASED] Car Booking ${reservation._id} funds authorized for payout.`);
+    
+    const landlord = await User.findById(owner._id);
+    
+    if (!landlord || !landlord.bankDetails?.recipientCode) {
+      return next(new AppError('Payout locked. Vehicle owner bank details are missing or unverified.', 400));
+    }
 
-    await NotificationService.sendPush(
-      owner._id,
-      "Payout Authorized 💰",
-      `The escrow for ${car.make} has been released. The funds will settle shortly.`,
-      "PAYOUT",
-      reservation._id
-    );
+    // Calculate Math
+    const PLATFORM_FEE_PERCENTAGE = 0.05; // 5%
+    const grossAmount = reservation.totalAmount;
+    const platformFee = grossAmount * PLATFORM_FEE_PERCENTAGE;
+    const payoutAmount = Math.round(grossAmount - platformFee);
 
-    EmailService.sendEscrowRelease({
-      guestEmail: guest.email,
-      guestName: `${guest.firstName || ''} ${guest.lastName || ''}`.trim() || 'Guest',
-      guestPhone: guest.phoneNumber || 'No phone provided',
+    // Start ACID Transaction
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      // Lock DB State First
+      reservation.escrowStatus = 'RELEASED';
+      reservation.reservationStatus = 'ACTIVE'; 
       
-      hostEmail: owner.email,
-      hostName: `${owner.firstName || ''} ${owner.lastName || ''}`.trim() || 'Owner',
-      hostPhone: owner.phoneNumber || 'No phone provided', 
+      // Create a strictly unique transfer reference to prevent Paystack duplicate block
+      const uniqueTransferRef = `TRF-${reservation._id}-${Date.now()}`;
+      reservation.paystackReference = uniqueTransferRef; 
       
-      assetTitle: `${car.make} ${car.carModel} ${car.year}`,
-      bookingType: 'CAR',
-      amount: reservation.totalAmount, 
-      datesOrTime: `${new Date(reservation.pickupTime).toLocaleString()} to ${new Date(reservation.dropoffTime).toLocaleString()}`,
+      await reservation.save({ session });
+
+      // Trigger Paystack Transfer with the unique reference
+      const transferReason = `Automated Vehicle Handover Payout for Reservation ${reservation._id}`;
+      await PaystackService.initiateTransfer(
+        payoutAmount, 
+        landlord.bankDetails.recipientCode, 
+        uniqueTransferRef,
+        transferReason
+      );
+
+      // If transfer succeeds, commit to DB
+      await session.commitTransaction();
+      session.endSession();
+
+      console.log(`[ESCROW RELEASED] Car Booking ${reservation._id} funds successfully transferred via Paystack.`);
+
+      // Post-Transfer Notifications & Emails
+      await NotificationService.sendPush(
+        owner._id,
+        "Payout Initiated 💰",
+        `The handover for ${car.make} is complete. Funds have been sent to your bank account.`,
+        "PAYOUT",
+        reservation._id
+      );
+
+      EmailService.sendEscrowRelease({
+        guestEmail: guest.email,
+        guestName: `${guest.firstName || ''} ${guest.lastName || ''}`.trim() || 'Guest',
+        guestPhone: guest.phoneNumber || 'No phone provided',
+        hostEmail: owner.email,
+        hostName: `${owner.firstName || ''} ${owner.lastName || ''}`.trim() || 'Owner',
+        hostPhone: owner.phoneNumber || 'No phone provided', 
+        assetTitle: `${car.make} ${car.carModel} ${car.year}`,
+        bookingType: 'CAR',
+        amount: reservation.totalAmount, 
+        datesOrTime: `${new Date(reservation.pickupTime).toLocaleString()} to ${new Date(reservation.dropoffTime).toLocaleString()}`,
+        paystackReference: uniqueTransferRef 
+      }).catch(console.error);
+
+    } catch (error) {
+      // Rollback DB if Paystack transfer fails
+      await session.abortTransaction();
+      session.endSession();
+      console.error(`[PAYOUT FAILED] Car Reservation ${reservation._id}:`, error);
       
-      paystackReference: reservation.paystackReference || 'N/A' 
-    }).catch(console.error);
+      const errorMsg = error instanceof AppError ? error.message : 'Automated payout failed to initiate.';
+      return next(new AppError(`Handover confirmed, but payout failed: ${errorMsg}`, 500));
+    }
+  } else {
+    // Just save handover state if handshake isn't complete yet
+    await reservation.save();
   }
-
-  await reservation.save();
 
   res.status(200).json({
     status: 'success',
     message: reservation.escrowStatus === 'RELEASED' 
-      ? 'Handover complete. Funds have been released to the vehicle owner.'
+      ? 'Handover complete. Funds have been successfully released to the vehicle owner.'
       : 'Handover partially confirmed. Waiting for the other party to confirm.',
     data: {
       guestConfirmed: reservation.guestConfirmedPickup,
       ownerConfirmed: reservation.ownerConfirmedHandover,
-      escrowStatus: reservation.escrowStatus
+      escrowStatus: reservation.escrowStatus,
+      payoutStatus: reservation.escrowStatus // Sent back for frontend consistency
     }
   });
 });
