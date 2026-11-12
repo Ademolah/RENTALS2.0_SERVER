@@ -58,7 +58,6 @@ router.post(
 router.post(
   '/confirm-arrival/:id', 
   protect, 
-  restrictTo('LANDLORD', 'ADMIN'), 
   confirmVipArrival
 );
 

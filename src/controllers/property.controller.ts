@@ -772,27 +772,88 @@ export const guestConfirmHotelCheckIn = asyncHandler(async (req: Request, res: R
     return next(new AppError('Invalid reservation ID format', 400));
   }
   
+  // 1. Must populate propertyId to fetch the landlord's bank details for payout
   const reservation = await Reservation.findOne({ 
     _id: id, 
     userId: userId 
-  });
+  }).populate('propertyId');
   
   if (!reservation) {
     return next(new AppError('Reservation not found or you do not have permission', 404));
   }
 
+  const property = reservation.propertyId as any;
+
+  // 2. Guest Handshake
   reservation.checkInConfirmedByGuest = true;
 
-  if (reservation.checkInConfirmedByLandlord) {
-    reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
-  }
+  // --- ESCROW RELEASE & AUTOMATED PAYOUT LOGIC ---
+  if (reservation.checkInConfirmedByLandlord && reservation.payoutStatus === 'HELD_IN_ESCROW') {
+    
+    const landlordId = property?.ownerId?.toString();
+    const landlord = await User.findById(landlordId);
+    
+    if (!landlord || !landlord.bankDetails?.recipientCode) {
+      return next(new AppError('Payout locked. Hotel bank details are missing or unverified.', 400));
+    }
 
-  await reservation.save();
+    const PLATFORM_FEE_PERCENTAGE = 0.05; 
+    const grossAmount = reservation.totalAmount;
+    const platformFee = grossAmount * PLATFORM_FEE_PERCENTAGE;
+    const payoutAmount = Math.round(grossAmount - platformFee);
+
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
+      
+      const uniqueTransferRef = `TRF-${reservation._id}-${Date.now()}`;
+      reservation.paystackReference = uniqueTransferRef; 
+      
+      await reservation.save({ session });
+
+      const transferReason = `Automated Hotel Check-In Payout for Reservation ${reservation._id}`;
+      await PaystackService.initiateTransfer(
+        payoutAmount, 
+        landlord.bankDetails.recipientCode, 
+        uniqueTransferRef,
+        transferReason
+      );
+
+      await session.commitTransaction();
+      session.endSession();
+
+      console.log(`[ESCROW RELEASED] Hotel Booking ${reservation._id} funds successfully transferred via Paystack.`);
+
+      if (property?.ownerId) {
+        await NotificationService.sendPush(
+          property.ownerId,
+          "Payout Initiated 💰",
+          `Check-in is complete at ${property.title}. Funds have been sent to your bank account.`,
+          "PAYOUT",
+          reservation._id
+        );
+      }
+    } catch (error) {
+      await session.abortTransaction();
+      session.endSession();
+      console.error(`[PAYOUT FAILED] Hotel Reservation ${reservation._id}:`, error);
+      
+      const errorMsg = error instanceof AppError ? error.message : 'Automated payout failed to initiate.';
+      return next(new AppError(`Check-in confirmed, but payout failed: ${errorMsg}`, 500));
+    }
+  } else {
+    await reservation.save();
+  }
 
   res.status(200).json({
     status: 'success',
     message: 'Check-in confirmed successfully.',
-    data: { reservation }
+    data: { 
+      reservation,
+      payoutStatus: reservation.payoutStatus
+    }
   });
 });
 
