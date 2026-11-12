@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import { CloudinaryService } from '../services/cloudinary.service.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { Property } from '../models/Property.js';
@@ -288,8 +289,15 @@ export const updateVipEstablishment = asyncHandler(async (req: Request, res: Res
 // ==========================================
 // 7. LANDLORD CONFIRMS GUEST ARRIVAL
 // ==========================================
+
 export const confirmVipArrival = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const { id } = req.params; 
+  const id = req.params.id as string; 
+  const userId = req.user?._id?.toString();
+  const userRole = req.user?.role;
+
+  if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+    return next(new AppError('Invalid reservation ID format.', 400));
+  }
   
   const reservation = await Reservation.findById(id).populate('propertyId');
   
@@ -297,43 +305,101 @@ export const confirmVipArrival = asyncHandler(async (req: Request, res: Response
     return next(new AppError('Reservation not found', 404));
   }
 
-  // Set the exact landlord flag from the schema
-  reservation.checkInConfirmedByLandlord = true;
+  const property = reservation.propertyId as any;
 
-  // Escrow handshake trigger: If guest already confirmed, release funds
-  if (reservation.checkInConfirmedByGuest) {
-    reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
+  // 1. Authorization Lock: Ensure only the VIP Venue/Service Owner or Admin can trigger this
+  if (property?.ownerId?.toString() !== userId && userRole !== 'ADMIN') {
+    return next(new AppError('You are not authorized to confirm arrival for this VIP reservation.', 403));
   }
 
-  await reservation.save();
+  // 2. Set the exact landlord flag from the schema
+  reservation.checkInConfirmedByLandlord = true;
 
-  // 💡 NOTIFICATION INJECTION: Notify the Guest that their arrival was confirmed by the club
+  // 3. Notify the Guest that their arrival was confirmed
   await NotificationService.sendPush(
     reservation.userId,
     "Arrival Confirmed! 🥂",
-    "Your host has verified your arrival. Have a great time!",
+    `Your host at ${property?.title || 'the venue'} has verified your arrival. Have a great time!`,
     "CHECK_IN",
     reservation._id
   );
 
-  // 💡 NOTIFICATION INJECTION: Notify Host of payout release if applicable
-  if (reservation.payoutStatus === 'RELEASED_TO_LANDLORD') {
-    const property = reservation.propertyId as any;
-    if (property && property.ownerId) {
-      await NotificationService.sendPush(
-        property.ownerId,
-        "Payout Authorized 💰",
-        "Guest arrival is fully confirmed. Funds have been authorized for payout.",
-        "PAYOUT",
-        reservation._id
-      );
+  // --- ESCROW RELEASE & AUTOMATED PAYOUT LOGIC ---
+  if (reservation.checkInConfirmedByGuest && reservation.payoutStatus === 'HELD_IN_ESCROW') {
+    
+    const landlordId = property?.ownerId?.toString();
+    const landlord = await User.findById(landlordId);
+    
+    if (!landlord || !landlord.bankDetails?.recipientCode) {
+      return next(new AppError('Payout locked. VIP host bank details are missing or unverified.', 400));
     }
+
+    // Calculate Math
+    const PLATFORM_FEE_PERCENTAGE = 0.05; // 5%
+    const grossAmount = reservation.totalAmount;
+    const platformFee = grossAmount * PLATFORM_FEE_PERCENTAGE;
+    const payoutAmount = Math.round(grossAmount - platformFee);
+
+    // Start ACID Transaction
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      // Lock DB State First
+      reservation.payoutStatus = 'RELEASED_TO_LANDLORD';
+      
+      // Create a strictly unique transfer reference to prevent Paystack duplicate block
+      const uniqueTransferRef = `TRF-${reservation._id}-${Date.now()}`;
+      reservation.paystackReference = uniqueTransferRef; 
+      
+      await reservation.save({ session });
+
+      // Trigger Paystack Transfer with the unique reference
+      const transferReason = `Automated VIP Payout for Reservation ${reservation._id}`;
+      await PaystackService.initiateTransfer(
+        payoutAmount, 
+        landlord.bankDetails.recipientCode, 
+        uniqueTransferRef,
+        transferReason
+      );
+
+      // If transfer succeeds, commit to DB
+      await session.commitTransaction();
+      session.endSession();
+
+      console.log(`[ESCROW RELEASED] VIP Booking ${reservation._id} funds successfully transferred via Paystack.`);
+
+      if (property?.ownerId) {
+        await NotificationService.sendPush(
+          property.ownerId,
+          "Payout Initiated 💰",
+          `Guest arrival at ${property.title} is fully confirmed. Funds have been sent to your bank account.`,
+          "PAYOUT",
+          reservation._id
+        );
+      }
+    } catch (error) {
+      // Rollback DB if Paystack transfer fails
+      await session.abortTransaction();
+      session.endSession();
+      console.error(`[PAYOUT FAILED] VIP Reservation ${reservation._id}:`, error);
+      
+      const errorMsg = error instanceof AppError ? error.message : 'Automated payout failed to initiate.';
+      return next(new AppError(`Arrival confirmed, but payout failed: ${errorMsg}`, 500));
+    }
+  } else {
+    // Just save check-in state if guest hasn't confirmed yet or payout is not needed yet
+    await reservation.save();
   }
 
   res.status(200).json({
     status: 'success',
     message: 'VIP Arrival confirmed successfully',
-    data: { reservation }
+    data: { 
+      reservation,
+      checkInConfirmedByLandlord: reservation.checkInConfirmedByLandlord,
+      payoutStatus: reservation.payoutStatus
+    }
   });
 });
 
