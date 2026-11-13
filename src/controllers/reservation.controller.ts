@@ -673,10 +673,19 @@ export const confirmCheckIn = asyncHandler(async (req: Request, res: Response, n
       }
 
       // Calculate Math
+      // Safely pull the caution fee directly from the populated property schema
+      const cautionFee = property?.cautionFee || 0;
+      const grossAmount = reservation.totalAmount; 
+      
+      // Isolate the base rent by subtracting the caution fee
+      const baseRent = Math.max(0, grossAmount - cautionFee);
+      
       const PLATFORM_FEE_PERCENTAGE = 0.05; // 5%
-      const grossAmount = reservation.totalAmount;
-      const platformFee = grossAmount * PLATFORM_FEE_PERCENTAGE;
-      const payoutAmount = Math.round(grossAmount - platformFee);
+      const platformFee = baseRent * PLATFORM_FEE_PERCENTAGE;
+      
+      // Landlord strictly receives 95% of the base rent. 
+      // Platform implicitly retains 100% Caution Fee + 5% Platform Fee in the Paystack balance.
+      const payoutAmount = Math.round(baseRent - platformFee);
 
       // Start ACID Transaction
       const session = await mongoose.startSession();
