@@ -61,8 +61,15 @@ export const initiateBooking = asyncHandler(async (req: Request, res: Response, 
       if (!property || !(property as any).isAvailable) {
         return next(new AppError('This property is not available for booking.', 404));
       }
+      
       const pricePerNight = (property as any).pricePerNight || (property as any).startingPrice || 0;
-      verifiedTotalAmount = pricePerNight * calculatedNights;
+      
+      // 💡 NEW: Extract caution fee (defaults to 0 if not set)
+      const cautionFee = (property as any).cautionFee || 0; 
+      
+      // 💡 NEW: Total amount is base rent (price * nights) PLUS the one-time caution fee
+      verifiedTotalAmount = (pricePerNight * calculatedNights) + cautionFee;
+      
       break;
     }
 
