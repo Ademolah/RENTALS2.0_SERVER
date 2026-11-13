@@ -13,10 +13,14 @@ router.use(protect);
 // Optional: If only landlords need this, uncomment below
 // router.use(restrictTo('LANDLORD', 'ADMIN'));
 
-router.get('/banks', restrictTo('ADMIN', 'LANDLORD'), getAvailableBanks);
+router.use(protect);
+
+// 💡 SURGICAL FIX: Removed restrictTo so Guests can see the bank dropdown list
+router.get('/banks', getAvailableBanks);
+
+// Keep the Landlord-specific Paystack Recipient logic strictly restricted
 router.post('/banks/verify', restrictTo('ADMIN', 'LANDLORD'), verifyBankAccount);
 router.post('/banks/save', restrictTo('ADMIN', 'LANDLORD'), saveLandlordBankDetails);
-
 router.post('/execute/:bookingId', restrictTo('ADMIN', 'LANDLORD'), processLandlordPayout);
 
 export default router;

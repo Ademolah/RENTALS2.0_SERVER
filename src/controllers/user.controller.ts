@@ -4,6 +4,7 @@ import { AppError } from '../utils/AppError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 import { CloudinaryService } from '../services/cloudinary.service.js';
+import { PaystackService } from '../services/paystack.service.js';
 
 export const uploadAvatar = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   // 1. TypeScript safety check: ensure the user object exists from the auth middleware
@@ -140,6 +141,58 @@ export const getMyFavorites = asyncHandler(async (req: Request, res: Response, n
     results: user?.favoriteProperties.length || 0,
     data: {
       favorites: user?.favoriteProperties || []
+    }
+  });
+});
+
+// --- GUEST BANK SETUP FOR CAUTION FEE REFUNDS ---
+
+export const saveGuestBankDetails = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { accountNumber, bankCode, bankName } = req.body;
+  const userId = req.user?._id;
+
+  if (!userId) {
+    return next(new AppError('Authentication context missing.', 401));
+  }
+
+  if (!accountNumber || !bankCode || !bankName) {
+    return next(new AppError('Account number, bank code, and bank name are required.', 400));
+  }
+
+  // 1. Resolve Account Name via Paystack (Throws an AppError if invalid)
+  const resolvedData = await PaystackService.resolveAccountNumber(accountNumber, bankCode);
+  
+  if (!resolvedData || !resolvedData.account_name) {
+    return next(new AppError('Could not verify account number. Please check your details.', 400));
+  }
+
+  const verifiedAccountName = resolvedData.account_name;
+
+  // 2. Update the User Schema 
+  // Notice we purposefully DO NOT create a recipient_code here like we do for landlords.
+  const updatedUser = await User.findByIdAndUpdate(
+    userId,
+    {
+      $set: {
+        'bankDetails.accountName': verifiedAccountName,
+        'bankDetails.accountNumber': accountNumber,
+        'bankDetails.bankName': bankName,
+        'bankDetails.bankCode': bankCode
+      }
+    },
+    { new: true, runValidators: true }
+  );
+
+  if (!updatedUser) {
+    return next(new AppError('User not found.', 404));
+  }
+
+  // 3. Return the sanitized success response
+  res.status(200).json({
+    status: 'success',
+    message: 'Bank account verified and saved successfully.',
+    data: {
+      bankDetails: updatedUser.bankDetails
     }
   });
 });
