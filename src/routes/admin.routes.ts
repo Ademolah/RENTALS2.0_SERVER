@@ -5,7 +5,9 @@ import {
   getEscrowLedger,
   getAssetOversight,
   toggleAssetStatus,
-  updateAssetApprovalStatus // 💡 NEW IMPORT
+  updateAssetApprovalStatus, // 💡 NEW IMPORT
+  getUserDetails,
+  getAllUsers
 } from '../controllers/admin.controller.js';
 
 import { getHostApplications, processHostApplication } from '../controllers/host.controller.js';
@@ -36,5 +38,8 @@ router.patch('/assets/:assetType/:assetId/approval', updateAssetApprovalStatus);
 // 4. Host Applications
 router.get('/host-applications', getHostApplications);
 router.patch('/host-applications/:id', processHostApplication);
+
+router.get('/users', getAllUsers);
+router.get('/users/:userId', getUserDetails);
 
 export default router;

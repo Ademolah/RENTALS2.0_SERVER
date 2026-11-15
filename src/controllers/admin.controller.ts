@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import mongoose from 'mongoose'
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../utils/AppError.js';
 import { User } from '../models/User.js';
@@ -248,5 +249,194 @@ export const updateAssetApprovalStatus = asyncHandler(async (req: Request, res: 
     data: {
       asset: updatedAsset
     }
+  });
+});
+
+// ==========================================
+// 6. USER DIRECTORY & REGULATORY DOSSIER
+// ==========================================
+
+// Escape regex metacharacters to prevent ReDoS / NoSQL regex injection
+const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+export const getAllUsers = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  // Defense-in-depth role verification
+  if (req.user?.role !== 'ADMIN') {
+    return next(new AppError('Access denied. Admin privileges required.', 403));
+  }
+
+  const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
+  const skip = (page - 1) * limit;
+
+  const filter: Record<string, any> = {};
+
+  // Strictly whitelist role filter
+  const role = (req.query.role as string)?.toUpperCase();
+  if (role && ['USER', 'LANDLORD', 'ADMIN'].includes(role)) {
+    filter.role = role;
+  }
+
+  // Optional verification status filter
+  if (req.query.isVerified === 'true') filter.isVerified = true;
+  if (req.query.isVerified === 'false') filter.isVerified = false;
+
+  // Sanitized search across name, email, phone, and host display name
+  const rawSearch = (req.query.search as string)?.trim();
+  if (rawSearch) {
+    const safeRegex = new RegExp(escapeRegex(rawSearch), 'i');
+    filter.$or = [
+      { firstName: safeRegex },
+      { lastName: safeRegex },
+      { hostDisplayName: safeRegex },
+      { email: safeRegex },
+      { phoneNumber: safeRegex },
+    ];
+  }
+
+  const [users, filteredCount] = await Promise.all([
+    User.find(filter)
+      .select('-passwordHash -verificationCode -verificationCodeExpires -pushTokens')
+      .sort('-createdAt')
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    User.countDocuments(filter),
+  ]);
+
+  console.info(
+    `[ADMIN AUDIT] Admin ${req.user._id} (${req.user.email}) queried user directory (page=${page}, limit=${limit}, results=${users.length})`
+  );
+
+  res.status(200).json({
+    status: 'success',
+    results: users.length,
+    pagination: {
+      total: filteredCount,
+      page,
+      limit,
+      totalPages: Math.ceil(filteredCount / limit) || 1,
+    },
+    data: {
+      users,
+    },
+  });
+});
+
+export const getUserDetails = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  // Defense-in-depth role verification
+  if (req.user?.role !== 'ADMIN') {
+    return next(new AppError('Access denied. Admin privileges required.', 403));
+  }
+
+  const userId = req.params.userId as string;
+
+  if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+    return next(new AppError('Invalid user ID provided.', 400));
+  }
+
+  // Fetch core identity + bank profile (explicitly stripping credentials & OTP codes)
+  const user = await User.findById(userId)
+    .select('-passwordHash -verificationCode -verificationCodeExpires -pushTokens')
+    .lean();
+
+  if (!user) {
+    return next(new AppError('User not found.', 404));
+  }
+
+  // Fetch KYC / host applications, owned assets, and booking history in parallel
+  const [
+    hostApplications,
+    ownedProperties,
+    ownedCars,
+    propertyBookingsAsGuest,
+    carBookingsAsGuest,
+  ] = await Promise.all([
+    HostRequest.find({ userId }).sort('-createdAt').lean(),
+    Property.find({ ownerId: userId })
+      .select('title category status isVerified isAvailable pricePerNight cautionFee address createdAt')
+      .sort('-createdAt')
+      .lean(),
+    Car.find({ ownerId: userId })
+      .select('make carModel model year category status isVerified isAvailable pricePer12Hours location createdAt')
+      .sort('-createdAt')
+      .lean(),
+    Reservation.find({ userId })
+      .populate('propertyId', 'title category address')
+      .sort('-createdAt')
+      .lean(),
+    CarReservation.find({ userId })
+      .populate('carId', 'make carModel model year')
+      .sort('-createdAt')
+      .lean(),
+  ]);
+
+  // If the user owns properties or cars, also fetch incoming host bookings for full financial auditability
+  const ownedPropertyIds = ownedProperties.map((p: any) => p._id);
+  const ownedCarIds = ownedCars.map((c: any) => c._id);
+
+  const [propertyBookingsAsHost, carBookingsAsHost] = await Promise.all([
+    ownedPropertyIds.length > 0
+      ? Reservation.find({ propertyId: { $in: ownedPropertyIds } })
+          .populate('userId', 'firstName lastName email phoneNumber')
+          .populate('propertyId', 'title category')
+          .sort('-createdAt')
+          .lean()
+      : Promise.resolve([]),
+    ownedCarIds.length > 0
+      ? CarReservation.find({ carId: { $in: ownedCarIds } })
+          .populate('userId', 'firstName lastName email phoneNumber')
+          .populate('carId', 'make carModel model year')
+          .sort('-createdAt')
+          .lean()
+      : Promise.resolve([]),
+  ]);
+
+  // Aggregate settled financial totals for quick regulatory/compliance review
+  const totalSpentAsGuest = [...propertyBookingsAsGuest, ...carBookingsAsGuest]
+    .filter((b: any) => b.paymentStatus === 'SUCCESS')
+    .reduce((sum: number, b: any) => sum + (Number(b.totalAmount) || 0), 0);
+
+  const totalGrossAsHost = [...propertyBookingsAsHost, ...carBookingsAsHost]
+    .filter((b: any) => b.paymentStatus === 'SUCCESS')
+    .reduce((sum: number, b: any) => sum + (Number(b.totalAmount) || 0), 0);
+
+  // Regulatory compliance audit log
+  console.info(
+    `[ADMIN AUDIT] Admin ${req.user._id} (${req.user.email}) inspected full regulatory dossier for User ${user._id} (${user.email})`
+  );
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      user,
+      complianceSummary: {
+        accountStatus: user.isVerified ? 'VERIFIED' : 'UNVERIFIED',
+        hasBankDetailsOnFile: Boolean((user as any).bankDetails?.accountNumber),
+        hasPaystackRecipient: Boolean((user as any).bankDetails?.recipientCode),
+        totalOwnedAssets: ownedProperties.length + ownedCars.length,
+        totalGuestBookings: propertyBookingsAsGuest.length + carBookingsAsGuest.length,
+        totalHostBookings: propertyBookingsAsHost.length + carBookingsAsHost.length,
+        totalSpentAsGuest,
+        totalGrossAsHost,
+      },
+      kyc: {
+        hostApplications,
+      },
+      assets: {
+        properties: ownedProperties,
+        cars: ownedCars,
+      },
+      transactions: {
+        asGuest: {
+          properties: propertyBookingsAsGuest,
+          cars: carBookingsAsGuest,
+        },
+        asHost: {
+          properties: propertyBookingsAsHost,
+          cars: carBookingsAsHost,
+        },
+      },
+    },
   });
 });
