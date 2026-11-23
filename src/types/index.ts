@@ -218,6 +218,152 @@ export interface IReservation {
   updatedAt: Date;
 }
 
+// ============================================================================
+// --- IN-APP SUPPORT CHAT TYPES & INTERFACES ---
+// ============================================================================
+
+export type TicketCategory =
+  | 'SHORTLET_CHECKIN'
+  | 'CAUTION_FEE_REFUND'
+  | 'HOST_PAYOUT'
+  | 'CAR_RENTAL_HANDOVER'
+  | 'HOTEL_RESERVATION'
+  | 'VIP_VENUE_EVENT'
+  | 'ACCOUNT_KYC'
+  | 'DISPUTE_ESCALATION'
+  | 'GENERAL_INQUIRY';
+
+export type TicketStatus =
+  | 'OPEN'             // Unassigned in live agent queue
+  | 'ASSIGNED'         // Claimed by an admin/support agent
+  | 'WAITING_ON_USER'  // Agent replied; awaiting user or landlord action
+  | 'RESOLVED'         // Issue resolved; user can reopen within 48h
+  | 'CLOSED';          // Permanently locked archive
+
+export type TicketPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+
+// Aligned directly with your existing UserRole ('USER' | 'LANDLORD' | 'ADMIN')
+export type RequesterRole = 'USER' | 'LANDLORD';
+export type MessageSenderRole = 'USER' | 'LANDLORD' | 'ADMIN' | 'SYSTEM';
+export type MessageVisibility = 'PUBLIC' | 'INTERNAL_NOTE';
+
+// Polymorphic reference to your existing Rentals Africa models
+export type SupportContextType =
+  | 'RESERVATION'      // Links to Reservation (Shortlet, Hotel, VIP)
+  | 'CAR_RESERVATION'  // Links to CarReservation
+  | 'PROPERTY'         // Links to Property (listing approval / payout)
+  | 'CAR'              // Links to Car (fleet approval / payout)
+  | 'NONE';
+
+export interface IChatAttachment {
+  url: string;
+  publicId: string;
+  mimeType: string;
+  fileName?: string;
+  sizeBytes?: number;
+}
+
+export interface ISupportTicket {
+  ticketCode: string;
+  requesterId: Types.ObjectId;
+  requesterRole: RequesterRole;
+  assignedAgentId: Types.ObjectId | null;
+  category: TicketCategory;
+  priority: TicketPriority;
+  status: TicketStatus;
+  subject: string;
+  contextType: SupportContextType;
+  contextId: Types.ObjectId | null;
+  lastMessagePreview: string;
+  lastMessageAt: Date;
+  requesterUnreadCount: number;
+  agentUnreadCount: number;
+  internalTags: string[];
+  slaFirstResponseAt: Date | null;
+  resolvedAt: Date | null;
+  resolvedBy: Types.ObjectId | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ISupportMessage {
+  ticketId: Types.ObjectId;
+  clientMessageId: string;
+  senderId: Types.ObjectId | null;
+  senderRole: MessageSenderRole;
+  senderDisplayName: string;
+  visibility: MessageVisibility;
+  body: string;
+  attachments: IChatAttachment[];
+  readAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AuthenticatedActor {
+  userId: string;
+  role: UserRole;
+  fullName: string;
+}
+
+export interface SanitizedTicketDTO {
+  id: string;
+  ticketCode: string;
+  requesterId: string;
+  requesterRole: RequesterRole;
+  assignedAgentId: string | null;
+  category: TicketCategory;
+  priority: TicketPriority;
+  status: TicketStatus;
+  subject: string;
+  contextType: SupportContextType;
+  contextId: string | null;
+  lastMessagePreview: string;
+  lastMessageAt: string;
+  unreadCount: number;
+  resolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  internalTags?: string[];
+  slaFirstResponseAt?: string | null;
+}
+
+export interface SanitizedMessageDTO {
+  id: string;
+  ticketId: string;
+  clientMessageId: string;
+  senderId: string | null;
+  senderRole: MessageSenderRole;
+  senderDisplayName: string;
+  visibility: MessageVisibility;
+  body: string;
+  attachments: IChatAttachment[];
+  readAt: string | null;
+  createdAt: string;
+}
+
+export interface CursorPaginationResult<T> {
+  items: T[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+// Mongoose Document & Model Interfaces
+export interface ISupportTicketDocument extends ISupportTicket, Document {}
+export interface ISupportMessageDocument extends ISupportMessage, Document {}
+
+export interface ISupportTicketModel extends mongoose.Model<ISupportTicket> {
+  generateTicketCode(): string;
+  toSafeDTO(ticket: ISupportTicketDocument, actor: AuthenticatedActor): SanitizedTicketDTO;
+}
+
+export interface ISupportMessageModel extends mongoose.Model<ISupportMessage> {
+  toSafeDTO(
+    message: ISupportMessageDocument,
+    actor: AuthenticatedActor
+  ): SanitizedMessageDTO | null;
+}
+
 // Mongoose Document Types (Combines our interfaces with Mongoose properties)
 export interface IUserDocument extends IUser, Document {}
 export interface IPropertyDocument extends IProperty, Document {}
