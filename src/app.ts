@@ -16,6 +16,7 @@ import adminRoutes from './routes/admin.routes.js';
 import reviewRoutes from './routes/reviews.routes.js'; 
 import { AppError } from './utils/AppError.js';
 import notificationRoutes from './routes/notification.routes.js';
+import supportRoutes from './routes/support.routes.js'; // Import the support routes
 
 const app: Application = express();
 
@@ -47,6 +48,8 @@ app.use('/api/v1/hotels', hotelRoutes);
 app.use("/api/v1/cars", carRoutes)
 app.use("/api/v1/reservations", reservationRoutes)
 app.use('/api/v1/payouts', payoutRoutes)
+app.use('/api/v1/support', supportRoutes); // Mount the support routes
+
 
 // JSON CATCH-ALL FOR UNHANDLED ROUTES (Safe for path-to-regexp v8+)
 app.use((req: Request, res: Response, next: NextFunction) => {

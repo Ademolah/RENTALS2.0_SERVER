@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
 import { SupportService } from '../services/support.service';
+import { SupportRealtimeBridge } from '../sockets/support.sockets';
 import { AuthenticatedActor, UserRole } from '../types';
 import { SupportApiError } from '../utils/support.errors';
 import {
@@ -88,6 +89,8 @@ export class SupportController {
       const payload = createTicketSchema.parse(req.body);
       const result = await SupportService.createTicket(actor, payload);
 
+      SupportRealtimeBridge.emitTicketCreated(result.ticket, result.initialMessage);
+
       res.status(201).json({
         success: true,
         data: result,
@@ -170,6 +173,10 @@ export class SupportController {
       const payload = sendMessageSchema.parse(req.body);
       const result = await SupportService.sendMessage(actor, ticketId, payload);
 
+      if (!result.isDuplicate) {
+        SupportRealtimeBridge.emitNewMessage(result.ticket, result.message);
+      }
+
       res.status(result.isDuplicate ? 200 : 201).json({
         success: true,
         data: result,
@@ -189,6 +196,8 @@ export class SupportController {
       const actor = extractActor(req);
       const { ticketId } = ticketIdParamSchema.parse(req.params);
       const ticket = await SupportService.markTicketRead(actor, ticketId);
+
+      SupportRealtimeBridge.emitTicketStateChanged(ticket);
 
       res.status(200).json({
         success: true,
@@ -211,6 +220,8 @@ export class SupportController {
       const { agentId } = assignTicketSchema.parse(req.body);
       const result = await SupportService.assignTicket(actor, ticketId, agentId);
 
+      SupportRealtimeBridge.emitTicketStateChanged(result.ticket, result.systemMessage);
+
       res.status(200).json({
         success: true,
         data: result,
@@ -232,6 +243,8 @@ export class SupportController {
       const { status } = updateTicketStatusSchema.parse(req.body);
       const result = await SupportService.updateTicketStatus(actor, ticketId, status);
 
+      SupportRealtimeBridge.emitTicketStateChanged(result.ticket, result.systemMessage);
+
       res.status(200).json({
         success: true,
         data: result,
@@ -252,6 +265,8 @@ export class SupportController {
       const { ticketId } = ticketIdParamSchema.parse(req.params);
       const { tags } = updateInternalTagsSchema.parse(req.body);
       const ticket = await SupportService.updateInternalTags(actor, ticketId, tags);
+
+      SupportRealtimeBridge.emitTicketStateChanged(ticket);
 
       res.status(200).json({
         success: true,
