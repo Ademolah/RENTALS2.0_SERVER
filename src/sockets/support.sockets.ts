@@ -44,6 +44,7 @@ interface JwtDecodedPayload {
   id?: string;
   _id?: string;
   userId?: string;
+  sub?: string;
   role?: UserRole;
   firstName?: string;
   lastName?: string;
@@ -259,13 +260,16 @@ const authenticateSocketActor = async (socket: Socket): Promise<AuthenticatedAct
     throw new SupportApiError(401, 'INVALID_TOKEN', 'Invalid or expired authentication token.');
   }
 
-  const userId = decoded.userId || decoded.id || decoded._id;
+  const userId = decoded.userId || decoded.id || decoded._id || decoded.sub;
   if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
     throw new SupportApiError(401, 'INVALID_TOKEN_PAYLOAD', 'Malformed token subject.');
   }
 
-  // Hydrate fresh user role & display name from MongoDB so revoked/updated roles take immediate effect
-  const UserModel = mongoose.model('User');
+ // Hydrate fresh user role & display name from MongoDB so revoked/updated roles take immediate effect
+  const UserModel = (mongoose.models.User ||
+    mongoose.models.user ||
+    mongoose.model('User')) as mongoose.Model<LeanUserRecord>;
+
   const userDoc = await UserModel.findById(userId)
     .select('role firstName lastName hostDisplayName')
     .lean<LeanUserRecord | null>();
@@ -287,7 +291,7 @@ const authenticateSocketActor = async (socket: Socket): Promise<AuthenticatedAct
 };
 
 const registerPresence = async (actor: AuthenticatedActor, socketId: string): Promise<void> => {
-  if (redisClient.status !== 'ready') return;
+  if (!redisClient || redisClient.status !== 'ready') return;
 
   try {
     const userKey = PRESENCE_KEYS.userSockets(actor.userId);
@@ -305,7 +309,7 @@ const registerPresence = async (actor: AuthenticatedActor, socketId: string): Pr
 };
 
 const unregisterPresence = async (actor: AuthenticatedActor, socketId: string): Promise<void> => {
-  if (redisClient.status !== 'ready') return;
+  if (!redisClient || redisClient.status !== 'ready') return;
 
   try {
     const userKey = PRESENCE_KEYS.userSockets(actor.userId);
@@ -324,7 +328,7 @@ const unregisterPresence = async (actor: AuthenticatedActor, socketId: string): 
 };
 
 const checkSocketMessageRateLimit = async (userId: string): Promise<boolean> => {
-  if (redisClient.status !== 'ready') return true; // Fail open if Redis is reconnecting
+  if (!redisClient || redisClient.status !== 'ready') return true; // Fail open if Redis is reconnecting
 
   try {
     const key = PRESENCE_KEYS.socketRateLimit(userId);
@@ -368,8 +372,10 @@ const formatSocketError = (err: unknown): { code: string; message: string; detai
 
 export const initializeSupportSocket = (httpServer: HttpServer): Server => {
   const allowedOrigins = process.env.CLIENT_ORIGINS
-    ? process.env.CLIENT_ORIGINS.split(',').map((o) => o.trim())
-    : '*';
+    ? process.env.CLIENT_ORIGINS.split(',')
+        .map((o) => o.trim())
+        .filter(Boolean)
+    : true; // Reflects requesting origin when CLIENT_ORIGINS is unset (compatible with credentials: true)
 
   const io = new Server(httpServer, {
     cors: {
@@ -380,20 +386,30 @@ export const initializeSupportSocket = (httpServer: HttpServer): Server => {
     pingTimeout: 20_000,
     pingInterval: 25_000,
     maxHttpBufferSize: 1e6, // 1MB payload ceiling (attachments upload to Cloudinary first)
-    transports: ['websocket', 'polling'],
+    transports: ['polling', 'websocket'],
   });
 
-  // Attach Redis Pub/Sub adapter for multi-instance horizontal scaling
-  try {
-    const pubClient = createRedisDuplicate('socket-pub');
-    const subClient = createRedisDuplicate('socket-sub');
-    io.adapter(createAdapter(pubClient, subClient));
-    console.info('[SupportSocket] Redis Pub/Sub adapter attached');
-  } catch (err) {
-    console.warn(
-      '[SupportSocket] Running single-node memory adapter (Redis adapter init skipped):',
-      (err as Error).message
-    );
+  // Attach Redis Pub/Sub adapter only when Redis is actively connected
+  if (redisClient && (redisClient.status === 'ready' || redisClient.status === 'connect')) {
+    try {
+      const pubClient = createRedisDuplicate('socket-pub');
+      const subClient = createRedisDuplicate('socket-sub');
+      pubClient.on('error', (err: Error) =>
+        console.warn('[SupportSocket] Redis pub warning:', err.message)
+      );
+      subClient.on('error', (err: Error) =>
+        console.warn('[SupportSocket] Redis sub warning:', err.message)
+      );
+      io.adapter(createAdapter(pubClient, subClient));
+      console.info('[SupportSocket] Redis Pub/Sub adapter attached');
+    } catch (err) {
+      console.warn(
+        '[SupportSocket] Running single-node memory adapter (Redis adapter init skipped):',
+        (err as Error).message
+      );
+    }
+  } else {
+    console.info('[SupportSocket] Running single-node memory adapter (Redis not ready)');
   }
 
   const nsp = io.of('/support');
@@ -407,6 +423,7 @@ export const initializeSupportSocket = (httpServer: HttpServer): Server => {
       next();
     } catch (err) {
       const formatted = formatSocketError(err);
+      console.warn(`[SupportSocket] Handshake rejected (${formatted.code}): ${formatted.message}`);
       const authError = new Error(formatted.message) as Error & { data?: unknown };
       authError.data = formatted;
       next(authError);
@@ -427,7 +444,7 @@ export const initializeSupportSocket = (httpServer: HttpServer): Server => {
 
     // Confirm handshake & return online agent availability
     let onlineAgentsCount = 0;
-    if (redisClient.status === 'ready') {
+    if (redisClient && redisClient.status === 'ready') {
       onlineAgentsCount = await redisClient.scard(PRESENCE_KEYS.onlineAgents).catch(() => 0);
     }
 
@@ -455,7 +472,7 @@ export const initializeSupportSocket = (httpServer: HttpServer): Server => {
 
         // Check if counterparty is currently online
         let counterpartyOnline = false;
-        if (redisClient.status === 'ready') {
+        if (redisClient && redisClient.status === 'ready') {
           if (actor.role === 'ADMIN') {
             const count = await redisClient
               .scard(PRESENCE_KEYS.userSockets(ticket.requesterId.toString()))
