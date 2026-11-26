@@ -67,7 +67,7 @@ type AckResponse<T = unknown> =
 type AckCallback<T = unknown> = (response: AckResponse<T>) => void;
 
 // ============================================================================
-// Room Naming Helpers (Single Source of Truth)
+// Room Naming & Staff Role Helpers (Single Source of Truth)
 // ============================================================================
 
 const ROOMS = {
@@ -76,6 +76,9 @@ const ROOMS = {
   ticketPublic: (ticketId: string): string => `ticket:${ticketId}:public`,
   ticketStaff: (ticketId: string): string => `ticket:${ticketId}:staff`,
 };
+
+const isStaffRole = (role?: UserRole | string): boolean =>
+  role === 'ADMIN' || role === 'SUPPORT_AGENT';
 
 const PRESENCE_KEYS = {
   userSockets: (userId: string): string => `support:presence:user:${userId}`,
@@ -164,6 +167,7 @@ export class SupportRealtimeBridge {
 
   /**
    * Broadcasts read receipts to participants inside the ticket room.
+   * Normalizes staff roles to 'ADMIN' on the public wire to preserve mobile contracts.
    */
   public static emitTicketRead(
     ticket: SanitizedTicketDTO,
@@ -171,13 +175,15 @@ export class SupportRealtimeBridge {
   ): void {
     if (!supportNamespace) return;
 
+    const publicWireRole: UserRole = isStaffRole(readByRole) ? 'ADMIN' : readByRole;
+
     supportNamespace.to(ROOMS.ticketPublic(ticket.id)).emit('support:read', {
       ticketId: ticket.id,
-      readByRole,
+      readByRole: publicWireRole,
       readAt: new Date().toISOString(),
     });
 
-    if (readByRole === 'ADMIN') {
+    if (isStaffRole(readByRole)) {
       supportNamespace
         .to(ROOMS.staffAgents)
         .emit('support:queue:ticket_updated', { ticket });
@@ -265,7 +271,7 @@ const authenticateSocketActor = async (socket: Socket): Promise<AuthenticatedAct
     throw new SupportApiError(401, 'INVALID_TOKEN_PAYLOAD', 'Malformed token subject.');
   }
 
- // Hydrate fresh user role & display name from MongoDB so revoked/updated roles take immediate effect
+  // Hydrate fresh user role & display name from MongoDB so revoked/updated roles take immediate effect
   const UserModel = (mongoose.models.User ||
     mongoose.models.user ||
     mongoose.model('User')) as mongoose.Model<LeanUserRecord>;
@@ -281,7 +287,7 @@ const authenticateSocketActor = async (socket: Socket): Promise<AuthenticatedAct
   const fullName =
     userDoc.hostDisplayName ||
     [userDoc.firstName, userDoc.lastName].filter(Boolean).join(' ').trim() ||
-    (userDoc.role === 'ADMIN' ? 'Support Agent' : 'Rentals Africa User');
+    (isStaffRole(userDoc.role) ? 'Support Agent' : 'Rentals Africa User');
 
   return {
     userId: userDoc._id.toString(),
@@ -298,7 +304,7 @@ const registerPresence = async (actor: AuthenticatedActor, socketId: string): Pr
     const pipeline = redisClient.pipeline();
     pipeline.sadd(userKey, socketId);
     pipeline.expire(userKey, PRESENCE_TTL_SECONDS);
-    if (actor.role === 'ADMIN') {
+    if (isStaffRole(actor.role)) {
       pipeline.sadd(PRESENCE_KEYS.onlineAgents, actor.userId);
       pipeline.expire(PRESENCE_KEYS.onlineAgents, PRESENCE_TTL_SECONDS);
     }
@@ -318,7 +324,7 @@ const unregisterPresence = async (actor: AuthenticatedActor, socketId: string): 
 
     if (remainingSockets === 0) {
       await redisClient.del(userKey);
-      if (actor.role === 'ADMIN') {
+      if (isStaffRole(actor.role)) {
         await redisClient.srem(PRESENCE_KEYS.onlineAgents, actor.userId);
       }
     }
@@ -436,7 +442,7 @@ export const initializeSupportSocket = (httpServer: HttpServer): Server => {
 
     // Join personal or staff broadcast rooms
     await socket.join(ROOMS.userPersonal(actor.userId));
-    if (actor.role === 'ADMIN') {
+    if (isStaffRole(actor.role)) {
       await socket.join(ROOMS.staffAgents);
     }
 
@@ -465,15 +471,15 @@ export const initializeSupportSocket = (httpServer: HttpServer): Server => {
 
         await socket.join(ROOMS.ticketPublic(ticketId));
 
-        // ONLY admins join the internal staff room for this ticket
-        if (actor.role === 'ADMIN') {
+        // ONLY staff join the internal staff room for this ticket
+        if (isStaffRole(actor.role)) {
           await socket.join(ROOMS.ticketStaff(ticketId));
         }
 
         // Check if counterparty is currently online
         let counterpartyOnline = false;
         if (redisClient && redisClient.status === 'ready') {
-          if (actor.role === 'ADMIN') {
+          if (isStaffRole(actor.role)) {
             const count = await redisClient
               .scard(PRESENCE_KEYS.userSockets(ticket.requesterId.toString()))
               .catch(() => 0);
@@ -488,7 +494,7 @@ export const initializeSupportSocket = (httpServer: HttpServer): Server => {
 
         socket.to(ROOMS.ticketPublic(ticketId)).emit('support:presence:update', {
           ticketId,
-          role: actor.role,
+          role: isStaffRole(actor.role) ? 'ADMIN' : actor.role,
           isOnline: true,
         });
 
@@ -512,7 +518,7 @@ export const initializeSupportSocket = (httpServer: HttpServer): Server => {
       try {
         const { ticketId } = ticketRoomPayloadSchema.parse(rawPayload);
         await socket.leave(ROOMS.ticketPublic(ticketId));
-        if (actor.role === 'ADMIN') {
+        if (isStaffRole(actor.role)) {
           await socket.leave(ROOMS.ticketStaff(ticketId));
         }
         ack?.({ success: true, data: { ticketId } });
@@ -523,7 +529,7 @@ export const initializeSupportSocket = (httpServer: HttpServer): Server => {
     });
 
     // ------------------------------------------------------------------------
-    // Event: Send Live Message (or Internal Note for ADMINs)
+    // Event: Send Live Message (or Internal Note for Staff)
     // ------------------------------------------------------------------------
     socket.on('support:message:send', async (rawPayload: unknown, ack?: AckCallback) => {
       try {
@@ -568,9 +574,9 @@ export const initializeSupportSocket = (httpServer: HttpServer): Server => {
 
         socket.to(publicRoom).emit('support:typing', {
           ticketId,
-          senderRole: actor.role,
+          senderRole: isStaffRole(actor.role) ? 'ADMIN' : actor.role,
           senderDisplayName:
-            actor.role === 'ADMIN' ? 'Rentals Africa Support' : actor.fullName,
+            isStaffRole(actor.role) ? 'Rentals Africa Support' : actor.fullName,
           isTyping,
         });
       } catch {
@@ -610,7 +616,7 @@ export const initializeSupportSocket = (httpServer: HttpServer): Server => {
           ticketId: ticket._id,
         };
 
-        if (actor.role !== 'ADMIN') {
+        if (!isStaffRole(actor.role)) {
           filter.visibility = 'PUBLIC';
         }
 

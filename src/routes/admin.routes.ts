@@ -7,7 +7,8 @@ import {
   toggleAssetStatus,
   updateAssetApprovalStatus, // 💡 NEW IMPORT
   getUserDetails,
-  getAllUsers
+  getAllUsers,
+  updateUserRole
 } from '../controllers/admin.controller.js';
 
 import { getHostApplications, processHostApplication } from '../controllers/host.controller.js';
@@ -39,7 +40,9 @@ router.patch('/assets/:assetType/:assetId/approval', updateAssetApprovalStatus);
 router.get('/host-applications', getHostApplications);
 router.patch('/host-applications/:id', processHostApplication);
 
+// 5. User Directory & Staff Role Management
 router.get('/users', getAllUsers);
 router.get('/users/:userId', getUserDetails);
+router.patch('/users/:userId/role', updateUserRole);
 
 export default router;

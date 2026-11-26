@@ -273,7 +273,7 @@ export const getAllUsers = asyncHandler(async (req: Request, res: Response, next
 
   // Strictly whitelist role filter
   const role = (req.query.role as string)?.toUpperCase();
-  if (role && ['USER', 'LANDLORD', 'ADMIN'].includes(role)) {
+  if (role && ['USER', 'LANDLORD', 'SUPPORT_AGENT', 'ADMIN'].includes(role)) {
     filter.role = role;
   }
 
@@ -437,6 +437,82 @@ export const getUserDetails = asyncHandler(async (req: Request, res: Response, n
           cars: carBookingsAsHost,
         },
       },
+    },
+  });
+});
+
+// ==========================================
+// 7. STAFF ROLE PROMOTION / REVOCATION
+// ==========================================
+export const updateUserRole = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  // Defense-in-depth Super Admin check
+  if (req.user?.role !== 'ADMIN') {
+    return next(new AppError('Access denied. Admin privileges required.', 403));
+  }
+
+  const userId = req.params.userId as string;
+  if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+    return next(new AppError('Invalid user ID provided.', 400));
+  }
+
+  const nextRole = String(req.body?.role || '').toUpperCase().trim();
+  if (!['USER', 'SUPPORT_AGENT'].includes(nextRole)) {
+    return next(
+      new AppError('Invalid target role. Only USER and SUPPORT_AGENT transitions are permitted.', 400)
+    );
+  }
+
+  // Prevent self-modification
+  if (req.user._id.toString() === userId) {
+    return next(new AppError('You cannot modify your own administrative role.', 403));
+  }
+
+  const targetUser = await User.findById(userId)
+    .select('-passwordHash -verificationCode -verificationCodeExpires -pushTokens')
+    .lean();
+
+  if (!targetUser) {
+    return next(new AppError('User not found.', 404));
+  }
+
+  // Protect Super Admins and verified Landlords from accidental reassignment
+  if (targetUser.role === 'ADMIN') {
+    return next(new AppError('Cannot modify the role of another Super Admin.', 403));
+  }
+
+  if (targetUser.role === 'LANDLORD') {
+    return next(
+      new AppError('Cannot reassign a Landlord account via Support Agent promotion.', 400)
+    );
+  }
+
+  if (targetUser.role === nextRole) {
+    return res.status(200).json({
+      status: 'success',
+      message: `User already has role ${nextRole}.`,
+      data: {
+        user: targetUser,
+      },
+    });
+  }
+
+  const updatedUser = await User.findByIdAndUpdate(
+    userId,
+    { role: nextRole },
+    { new: true, runValidators: true }
+  )
+    .select('-passwordHash -verificationCode -verificationCodeExpires -pushTokens')
+    .lean();
+
+  console.info(
+    `[ADMIN AUDIT] Admin ${req.user._id} (${req.user.email}) updated role for User ${userId} (${targetUser.email}) from ${targetUser.role} to ${nextRole}`
+  );
+
+  res.status(200).json({
+    status: 'success',
+    message: `User role updated to ${nextRole} successfully.`,
+    data: {
+      user: updatedUser,
     },
   });
 });

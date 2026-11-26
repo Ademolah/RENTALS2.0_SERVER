@@ -25,6 +25,11 @@ import {
 
 const REOPEN_WINDOW_MS = 48 * 60 * 60 * 1000; // 48 hours
 
+const isStaffRole = (
+  role: AuthenticatedActor['role']
+): role is 'ADMIN' | 'SUPPORT_AGENT' =>
+  role === 'ADMIN' || role === 'SUPPORT_AGENT';
+
 const sanitizeText = (raw: string): string =>
   xss(raw, {
     whiteList: {}, // Strip all HTML tags for plain-text chat safety
@@ -53,6 +58,8 @@ const normalizeAttachments = (
     }
     return clean;
   });
+
+  
 
 const buildPreview = (body: string, attachmentCount: number): string => {
   if (body) {
@@ -99,8 +106,8 @@ export class SupportService {
 
     const objectId = new Types.ObjectId(contextId);
 
-    // Admins can attach any valid context ID
-    if (actor.role === 'ADMIN') {
+    // Staff can attach any valid context ID
+    if (isStaffRole(actor.role)) {
       return objectId;
     }
 
@@ -226,7 +233,7 @@ export class SupportService {
       throw new SupportApiError(404, 'TICKET_NOT_FOUND', 'Support ticket not found.');
     }
 
-    if (actor.role !== 'ADMIN' && ticket.requesterId.toString() !== actor.userId) {
+    if (!isStaffRole(actor.role) && ticket.requesterId.toString() !== actor.userId) {
       // Return 404 instead of 403 to prevent leaking ticket existence
       throw new SupportApiError(404, 'TICKET_NOT_FOUND', 'Support ticket not found.');
     }
@@ -241,7 +248,7 @@ export class SupportService {
     actor: AuthenticatedActor,
     input: CreateTicketInput
   ): Promise<{ ticket: SanitizedTicketDTO; initialMessage: SanitizedMessageDTO }> {
-    if (actor.role === 'ADMIN') {
+    if (isStaffRole(actor.role)) {
       throw new SupportApiError(
         403,
         'ADMIN_CANNOT_OPEN_TICKET',
@@ -316,7 +323,7 @@ export class SupportService {
   ): Promise<CursorPaginationResult<SanitizedTicketDTO>> {
     const filter: Record<string, unknown> = {};
 
-    if (actor.role !== 'ADMIN') {
+    if (!isStaffRole(actor.role)) {
       // Hard isolation: Users and Landlords only ever see their own tickets
       filter.requesterId = new Types.ObjectId(actor.userId);
     } else {
@@ -407,7 +414,7 @@ export class SupportService {
     };
 
     // Database-level security guard against internal note leakage
-    if (actor.role !== 'ADMIN') {
+    if (!isStaffRole(actor.role)) {
       filter.visibility = 'PUBLIC';
     }
 
@@ -440,7 +447,7 @@ export class SupportService {
   }
 
   /**
-   * Sends an idempotent message (or internal note for ADMINs) and atomically updates ticket state.
+   * Sends an idempotent message (or internal note for Staff) and atomically updates ticket state.
    */
   public static async sendMessage(
     actor: AuthenticatedActor,
@@ -452,9 +459,9 @@ export class SupportService {
     isDuplicate: boolean;
   }> {
     const ticket = await this.getAuthorizedTicketDocument(actor, ticketId);
-    const isStaff = actor.role === 'ADMIN';
+    const isStaff = isStaffRole(actor.role);
 
-    // 1. Block non-admins from creating internal notes
+    // 1. Block non-staff from creating internal notes
     if (input.visibility === 'INTERNAL_NOTE' && !isStaff) {
       throw new SupportApiError(
         403,
@@ -503,7 +510,10 @@ export class SupportService {
 
     const cleanBody = sanitizeText(input.body);
     const cleanAttachments = normalizeAttachments(input.attachments);
-    const senderRole: MessageSenderRole = actor.role;
+    // Keep public wire senderRole as 'ADMIN' for mobile/schema compatibility; senderId tracks exact agent
+    const senderRole: MessageSenderRole = isStaffRole(actor.role)
+      ? 'ADMIN'
+      : actor.role;
     const senderDisplayName = isStaff
       ? `${actor.fullName} (Rentals Africa Support)`
       : actor.fullName;
@@ -578,7 +588,7 @@ export class SupportService {
     ticketId: string
   ): Promise<SanitizedTicketDTO> {
     const ticket = await this.getAuthorizedTicketDocument(actor, ticketId);
-    const isStaff = actor.role === 'ADMIN';
+    const isStaff = isStaffRole(actor.role);
     const now = new Date();
 
     // Mark messages sent by the opposite party as read
@@ -604,14 +614,14 @@ export class SupportService {
   }
 
   /**
-   * Admin-only: Claims or transfers a ticket and appends a transparent SYSTEM event.
+   * Staff-only: Claims or transfers a ticket and appends a transparent SYSTEM event.
    */
   public static async assignTicket(
     actor: AuthenticatedActor,
     ticketId: string,
     agentId: string | null
   ): Promise<{ ticket: SanitizedTicketDTO; systemMessage: SanitizedMessageDTO }> {
-    if (actor.role !== 'ADMIN') {
+    if (!isStaffRole(actor.role)) {
       throw new SupportApiError(403, 'FORBIDDEN', 'Only support agents can assign tickets.');
     }
 
@@ -674,7 +684,7 @@ export class SupportService {
     nextStatus: TicketStatus
   ): Promise<{ ticket: SanitizedTicketDTO; systemMessage: SanitizedMessageDTO }> {
     const ticket = await this.getAuthorizedTicketDocument(actor, ticketId);
-    const isStaff = actor.role === 'ADMIN';
+    const isStaff = isStaffRole(actor.role);
 
     if (!isStaff) {
       // Users/Landlords can only mark their ticket RESOLVED or reopen a RESOLVED ticket within 48h
@@ -761,14 +771,14 @@ export class SupportService {
   }
 
   /**
-   * Admin-only: Updates internal classification tags (strictly invisible to Users/Landlords).
+   * Staff-only: Updates internal classification tags (strictly invisible to Users/Landlords).
    */
   public static async updateInternalTags(
     actor: AuthenticatedActor,
     ticketId: string,
     tags: string[]
   ): Promise<SanitizedTicketDTO> {
-    if (actor.role !== 'ADMIN') {
+    if (!isStaffRole(actor.role)) {
       throw new SupportApiError(403, 'FORBIDDEN', 'Only support agents can edit internal tags.');
     }
 

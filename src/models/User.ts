@@ -10,7 +10,7 @@ const userSchema = new Schema<IUserDocument>(
     lastName: { type: String, required: true, trim: true },
     profilePicture: { type: String },
     hostDisplayName: { type: String, trim: true },
-    role: { type: String, enum: ['USER', 'LANDLORD', 'ADMIN'], default: 'USER' },
+    role: { type: String, enum: ['USER', 'LANDLORD', 'SUPPORT_AGENT', 'ADMIN'], default: 'USER' },
     phoneNumber: { type: String, trim: true, unique: true, sparse: true }, // Sparse index allows multiple null values
     favoriteProperties: [{
     type: mongoose.Schema.Types.ObjectId,

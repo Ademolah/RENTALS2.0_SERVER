@@ -140,7 +140,7 @@ supportTicketSchema.statics.toSafeDTO = function (
   ticket: ISupportTicketDocument,
   actor: AuthenticatedActor
 ): SanitizedTicketDTO {
-  const isStaff = actor.role === 'ADMIN';
+  const isStaff = actor.role === 'ADMIN' || actor.role === 'SUPPORT_AGENT';
 
   const baseDTO: SanitizedTicketDTO = {
     id: ticket._id.toString(),

@@ -9,7 +9,7 @@ import {
 
 const router = Router();
 
-// All support chat routes require a valid JWT (USER, LANDLORD, or ADMIN)
+// All support chat routes require a valid JWT (USER, LANDLORD, SUPPORT_AGENT, or ADMIN)
 router.use(protect);
 
 // Ticket lifecycle
@@ -26,16 +26,16 @@ router.post(
 );
 router.patch('/tickets/:ticketId/read', SupportController.markTicketRead);
 
-// Status & Admin operations
+// Status & Staff operations
 router.patch('/tickets/:ticketId/status', SupportController.updateTicketStatus);
 router.patch(
   '/tickets/:ticketId/assign',
-  restrictTo('ADMIN'),
+  restrictTo('ADMIN', 'SUPPORT_AGENT'),
   SupportController.assignTicket
 );
 router.patch(
   '/tickets/:ticketId/tags',
-  restrictTo('ADMIN'),
+  restrictTo('ADMIN', 'SUPPORT_AGENT'),
   SupportController.updateInternalTags
 );
 

@@ -2,7 +2,7 @@ import { Schema, Document, Types } from 'mongoose';
 import mongoose from 'mongoose';
 
 // --- ENUMS & LITERALS ---
-export type UserRole = 'USER' | 'LANDLORD' | 'ADMIN'; 
+export type UserRole = 'USER' | 'LANDLORD' | 'ADMIN' | 'SUPPORT_AGENT'; 
 export type PropertyCategory = 'CAR RENTAL' | 'SHORTLET' | 'VIP RESERVATION' | 'VIP' | 'HOTEL' | 'VIP_SERVICE'; 
 export type PaymentStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'REFUNDED';
 export type ReservationStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED' | 'WHATSAPP_INITIATED';

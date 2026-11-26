@@ -91,7 +91,7 @@ supportMessageSchema.statics.toSafeDTO = function (
   message: ISupportMessageDocument,
   actor: AuthenticatedActor
 ): SanitizedMessageDTO | null {
-  const isStaff = actor.role === 'ADMIN';
+  const isStaff = actor.role === 'ADMIN' || actor.role === 'SUPPORT_AGENT';
 
   // Hard security guard: NEVER serialize internal agent notes to Users or Landlords
   if (message.visibility === 'INTERNAL_NOTE' && !isStaff) {
