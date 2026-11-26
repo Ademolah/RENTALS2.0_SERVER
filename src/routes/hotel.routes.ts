@@ -28,8 +28,9 @@ router.get('/:id', getHotel);
 // PROTECTED ROUTES (Landlords & Admins only)
 // ==========================================
 router.get('/guest/bookings', protect,  getGuestHotelBookings);
-router.post('/', protect, restrictTo('LANDLORD', 'ADMIN'), upload.array('images', 15), createHotel);
-router.patch('/:id', protect, restrictTo('LANDLORD', 'ADMIN'), upload.array('images', 15), updateHotel);
+// Replace the POST and PATCH lines in hotel.routes.ts:
+router.post('/', protect, restrictTo('LANDLORD', 'ADMIN'), upload.any(), createHotel);
+router.patch('/:id', protect, restrictTo('LANDLORD', 'ADMIN'), upload.any(), updateHotel);
 router.delete('/:id', protect, restrictTo('LANDLORD', 'ADMIN'), deleteHotel);
 
 

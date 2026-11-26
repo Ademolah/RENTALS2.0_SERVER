@@ -71,41 +71,109 @@ export const createProperty = asyncHandler(async (req: Request, res: Response, n
   });
 });
 
+const extractUploadedFiles = (
+  files: Express.Multer.File[] | { [fieldname: string]: Express.Multer.File[] } | undefined
+): Express.Multer.File[] => {
+  if (!files) return [];
+  if (Array.isArray(files)) return files;
+  return Object.values(files).flat();
+};
+
+const parseStringArray = (raw: unknown): string[] => {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+      }
+    } catch {
+      return trimmed.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+  }
+  return [];
+};
+
 export const createHotel = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const { 
-    title, description, street, city, state, 
-    amenities, hasBreakfast, startingPrice 
+  const {
+    title, description, street, city, state,
+    amenities, hasBreakfast, startingPrice
   } = req.body;
 
-  let parsedRoomTypes = [];
+  const allFiles = extractUploadedFiles(req.files as any);
+
+  console.log('[CreateHotel] Incoming media check:', {
+    contentType: req.headers['content-type'],
+    fileCount: allFiles.length,
+    fileFields: allFiles.map((f) => f.fieldname),
+    bodyImagesType: typeof req.body.images,
+  });
+
+  let parsedRoomTypes: any[] = [];
   if (req.body.roomTypes) {
     try {
-      parsedRoomTypes = JSON.parse(req.body.roomTypes);
-    } catch (error) {
+      parsedRoomTypes =
+        typeof req.body.roomTypes === 'string'
+          ? JSON.parse(req.body.roomTypes)
+          : req.body.roomTypes;
+    } catch {
       return next(new AppError('Invalid roomTypes format. Must be a valid JSON string.', 400));
     }
   }
 
-  let parsedAmenities = amenities;
-  if (typeof amenities === 'string') {
-    try {
-      parsedAmenities = JSON.parse(amenities);
-    } catch (e) {
-      parsedAmenities = amenities.split(',').map((a: string) => a.trim());
+  const parsedAmenities = parseStringArray(amenities);
+
+  // 1. Separate hotel-level files from room-level files (e.g. roomImages_0, roomImages-1)
+  const hotelImageFiles = allFiles.filter((f) =>
+    ['images', 'photos', 'hotelImages', 'image', 'file'].includes(f.fieldname)
+  );
+
+  // 2. Upload hotel-level files + merge any pre-uploaded URLs sent in req.body.images
+  const newlyUploadedHotelImages =
+    hotelImageFiles.length > 0
+      ? await CloudinaryService.uploadMultipleImages(hotelImageFiles)
+      : [];
+  const existingBodyUrls = parseStringArray(req.body.images).filter((url) =>
+    /^https?:\/\//i.test(url)
+  );
+  const finalHotelImages = Array.from(new Set([...existingBodyUrls, ...newlyUploadedHotelImages]));
+
+  // 3. Map room-level files (roomImages_0, roomImages_1, etc.) & clean room image arrays
+  if (Array.isArray(parsedRoomTypes)) {
+    for (let i = 0; i < parsedRoomTypes.length; i++) {
+      const room = parsedRoomTypes[i];
+      const existingRoomUrls = parseStringArray(room.images).filter((url) =>
+        /^https?:\/\//i.test(url)
+      );
+
+      const roomFiles = allFiles.filter((f) => {
+        const match = f.fieldname.match(/^roomImages[_-]?(\d+)$/i);
+        return match && Number(match[1]) === i;
+      });
+
+      const uploadedRoomUrls =
+        roomFiles.length > 0
+          ? await CloudinaryService.uploadMultipleImages(roomFiles)
+          : [];
+
+      parsedRoomTypes[i] = {
+        ...room,
+        images: Array.from(new Set([...existingRoomUrls, ...uploadedRoomUrls])),
+      };
     }
   }
 
-  let uploadedImages: string[] = [];
-  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
-    uploadedImages = await CloudinaryService.uploadMultipleImages(req.files);
-  }
-
   if (!req.user?._id) {
-    return res.status(401).json({ message: "Unauthorized: No user found." });
+    return res.status(401).json({ message: 'Unauthorized: No user found.' });
   }
 
   const hotel = await Property.create({
-    ownerId: req.user?._id,
+    ownerId: req.user._id,
     category: 'HOTEL',
     title,
     description,
@@ -114,13 +182,13 @@ export const createHotel = asyncHandler(async (req: Request, res: Response, next
     hasBreakfast: hasBreakfast === 'true' || hasBreakfast === true,
     startingPrice: Number(startingPrice),
     roomTypes: parsedRoomTypes,
-    images: uploadedImages,
-    isAvailable: true
+    images: finalHotelImages,
+    isAvailable: true,
   });
 
   res.status(201).json({
     status: 'success',
-    data: { hotel }
+    data: { hotel },
   });
 });
 
@@ -131,39 +199,143 @@ export const updateHotel = asyncHandler(async (req: Request, res: Response, next
     return next(new AppError('Invalid hotel ID format.', 400));
   }
 
-  const updates = { ...req.body };
   const hotel = await Property.findById(hotelId);
-  
-  if (!hotel) return next(new AppError('Hotel not found', 404));
+  if (!hotel) {
+    return next(new AppError('Hotel not found', 404));
+  }
 
   const isAdmin = req.user?.role === 'ADMIN';
-  const isLandlordOwner = req.user?.role === 'LANDLORD' && hotel.ownerId.toString() === req.user?._id?.toString();
+  const isLandlordOwner =
+    req.user?.role === 'LANDLORD' && hotel.ownerId.toString() === req.user?._id?.toString();
 
   if (!isAdmin && !isLandlordOwner) {
     return next(new AppError('You do not have permission to edit this hotel.', 403));
   }
 
-  if (updates.roomTypes) updates.roomTypes = JSON.parse(updates.roomTypes);
-  if (updates.amenities && typeof updates.amenities === 'string') {
-    try { updates.amenities = JSON.parse(updates.amenities); } 
-    catch(e) { updates.amenities = updates.amenities.split(',').map((a: string) => a.trim()); }
-  }
-  if (updates.address) updates.address = JSON.parse(updates.address);
-  if (updates.hasBreakfast) updates.hasBreakfast = updates.hasBreakfast === 'true';
+  const updates: Record<string, any> = { ...req.body };
 
-  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
-    const newImages = await CloudinaryService.uploadMultipleImages(req.files);
-    let existingImages = updates.existingImages ? JSON.parse(updates.existingImages) : hotel.images;
-    updates.images = [...existingImages, ...newImages];
+  // Prevent overwriting immutable ownership/discriminator fields
+  delete updates._id;
+  delete updates.ownerId;
+  delete updates.category;
+
+  // 1. Safely parse roomTypes (handles both FormData JSON string and application/json array)
+  if (updates.roomTypes !== undefined) {
+    if (typeof updates.roomTypes === 'string') {
+      try {
+        updates.roomTypes = JSON.parse(updates.roomTypes);
+      } catch {
+        return next(new AppError('Invalid roomTypes format. Must be a valid JSON string.', 400));
+      }
+    }
   }
 
-  const updatedHotel = await Property.findByIdAndUpdate(hotelId, updates, { 
-    new: true, runValidators: true 
+  // 2. Safely parse amenities
+  if (updates.amenities !== undefined) {
+    updates.amenities = parseStringArray(updates.amenities);
+  }
+
+  // 3. Safely parse address (supports JSON string, nested object, or flat street/city/state fields)
+  if (updates.address !== undefined) {
+    if (typeof updates.address === 'string') {
+      try {
+        updates.address = JSON.parse(updates.address);
+      } catch {
+        return next(new AppError('Invalid address format. Must be a valid JSON string.', 400));
+      }
+    }
+  } else if (updates.street !== undefined || updates.city !== undefined || updates.state !== undefined) {
+    updates.address = {
+      street: updates.street ?? hotel.address?.street ?? '',
+      city: updates.city ?? hotel.address?.city ?? '',
+      state: updates.state ?? hotel.address?.state ?? '',
+      country: updates.country ?? hotel.address?.country ?? 'Nigeria',
+    };
+  }
+  delete updates.street;
+  delete updates.city;
+  delete updates.state;
+  delete updates.country;
+
+  // 4. Coerce boolean & numeric fields safely for both FormData and JSON payloads
+  if (updates.hasBreakfast !== undefined) {
+    updates.hasBreakfast = updates.hasBreakfast === 'true' || updates.hasBreakfast === true;
+  }
+  if (updates.startingPrice !== undefined) {
+    updates.startingPrice = Number(updates.startingPrice);
+  }
+
+  // 5. Handle hotel-level images (new uploads, retained existingImages, or direct URL array)
+  const allFiles = extractUploadedFiles(req.files as any);
+  const hotelImageFiles = allFiles.filter((f) =>
+    ['images', 'photos', 'hotelImages', 'image', 'file'].includes(f.fieldname)
+  );
+
+  const hasHotelImageMutation =
+    hotelImageFiles.length > 0 ||
+    updates.existingImages !== undefined ||
+    updates.images !== undefined;
+
+  if (hasHotelImageMutation) {
+    const baseImages =
+      updates.existingImages !== undefined
+        ? parseStringArray(updates.existingImages).filter((url) => /^https?:\/\//i.test(url))
+        : updates.images !== undefined
+        ? parseStringArray(updates.images).filter((url) => /^https?:\/\//i.test(url))
+        : Array.isArray(hotel.images)
+        ? hotel.images
+        : [];
+
+    const newlyUploadedHotelImages =
+      hotelImageFiles.length > 0
+        ? await CloudinaryService.uploadMultipleImages(hotelImageFiles)
+        : [];
+
+    updates.images = Array.from(new Set([...baseImages, ...newlyUploadedHotelImages]));
+  }
+  delete updates.existingImages;
+
+  // 6. Handle room-level image uploads (roomImages_0, roomImages_1, etc.)
+  const hasRoomFiles = allFiles.some((f) => /^roomImages[_-]?\d+$/i.test(f.fieldname));
+  const targetRoomTypes = Array.isArray(updates.roomTypes)
+    ? updates.roomTypes
+    : hasRoomFiles && Array.isArray(hotel.roomTypes)
+    ? hotel.roomTypes.map((r: any) => (typeof r.toObject === 'function' ? r.toObject() : { ...r }))
+    : null;
+
+  if (targetRoomTypes) {
+    for (let i = 0; i < targetRoomTypes.length; i++) {
+      const room = targetRoomTypes[i];
+      const existingRoomUrls = parseStringArray(room.images).filter((url) =>
+        /^https?:\/\//i.test(url)
+      );
+
+      const roomFiles = allFiles.filter((f) => {
+        const match = f.fieldname.match(/^roomImages[_-]?(\d+)$/i);
+        return match && Number(match[1]) === i;
+      });
+
+      const uploadedRoomUrls =
+        roomFiles.length > 0
+          ? await CloudinaryService.uploadMultipleImages(roomFiles)
+          : [];
+
+      targetRoomTypes[i] = {
+        ...room,
+        images: Array.from(new Set([...existingRoomUrls, ...uploadedRoomUrls])),
+      };
+    }
+    updates.roomTypes = targetRoomTypes;
+  }
+
+  const updatedHotel = await Property.findByIdAndUpdate(hotelId, updates, {
+    new: true,
+    runValidators: true,
   });
 
   res.status(200).json({
     status: 'success',
-    data: { hotel: updatedHotel }
+    data: { hotel: updatedHotel },
   });
 });
 
