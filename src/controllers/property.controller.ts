@@ -172,6 +172,12 @@ export const createHotel = asyncHandler(async (req: Request, res: Response, next
     return res.status(401).json({ message: 'Unauthorized: No user found.' });
   }
 
+  // Fallback to the first room's cover photo if no exterior/lobby photos were uploaded
+  const resolvedHotelImages =
+    finalHotelImages.length > 0
+      ? finalHotelImages
+      : parsedRoomTypes.flatMap((r) => r.images || []).slice(0, 1);
+
   const hotel = await Property.create({
     ownerId: req.user._id,
     category: 'HOTEL',
@@ -182,7 +188,7 @@ export const createHotel = asyncHandler(async (req: Request, res: Response, next
     hasBreakfast: hasBreakfast === 'true' || hasBreakfast === true,
     startingPrice: Number(startingPrice),
     roomTypes: parsedRoomTypes,
-    images: finalHotelImages,
+    images: resolvedHotelImages,
     isAvailable: true,
   });
 
